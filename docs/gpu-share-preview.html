@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Share — interactive preview</title>
+<script>document.documentElement.dataset.theme =
+   (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* the bench: the surface both machines sit on */
+  --bench:#1B2430; --bench-deep:#141C26; --bench-line:#2C3A4A; --bench-line-hi:#42566B;
+  --bench-ink:#D8DEE4; --bench-soft:#93A3B2; --bench-faint:#64747F; --bench-hi:#ffffff;
+  --bench-btn:#1E2833; --bench-btn2:#212C38; --wire:#2C3A4A;
+  /* inside an app window */
+  --panel:#F7F8F7; --panel-2:#ECEEEE; --surface:#ffffff;
+  --taskbar:#DDE1E1; --taskbar-hover:#CED4D4;
+  --ink:#202A33; --ink-soft:#5A6873; --ink-faint:#8A959E;
+  --rule:#D7DBDB; --field-border:#C6CCCC; --track:#E4E8E8;
+  --sw-off:#C3CACA; --sw-knob:#ffffff; --scroll:#C9CFCF;
+  /* meaning */
+  --live:#17A3A3; --live-deep:#0E7C7C; --live-bg:#E6F5F5; --live-br:#9FD4D4; --on-live:#ffffff;
+  --wait:#C98A22; --wait-ink:#7A5310; --wait-bg:#FBF3E2; --wait-br:#E8D5A6; --on-wait:#231903;
+  --halt:#A3574E; --halt-bg:#F7EDEB; --halt-br:#DCC3BF;
+  --win:#2E5E8C; --win-bg:#E8F0F7; --win-br:#AFC6DA; --win-title:#2E5E8C;
+  --ubu:#5E2750; --ubu-title:#5E2750;
+  --calm-bg:#F1F3F3; --info-bg:#E9F4F4; --info-br:#B4DCDC; --info-ink:#0B6A6A;
+  --title-ink:#ffffff; --on-accent:#ffffff;
+  --scrim:rgba(24,32,42,.55);
+  --edge:transparent;
+  --shadow:0 18px 44px rgba(0,0,0,.38), 0 2px 6px rgba(0,0,0,.3);
+  --radius:10px;
+}
+[data-theme="dark"]{
+  --bench:#080C11; --bench-deep:#05080B; --bench-line:#17222D; --bench-line-hi:#2C3D4C;
+  --bench-ink:#AEBCC8; --bench-soft:#74838F; --bench-faint:#56646F; --bench-hi:#E8EFF5;
+  --bench-btn:#0D141B; --bench-btn2:#111A22; --wire:#1C2833;
+  --panel:#161E26; --panel-2:#1E2831; --surface:#1B242D;
+  --taskbar:#111920; --taskbar-hover:#1E2831;
+  --ink:#DDE5EC; --ink-soft:#93A2AF; --ink-faint:#6B7A86;
+  --rule:#2A3742; --field-border:#3A4855; --track:#28343E;
+  --sw-off:#3C4A57; --sw-knob:#C9D4DE; --scroll:#39474F;
+  --live:#2FB5B5; --live-deep:#4FD1D1; --live-bg:#0E2E2E; --live-br:#1D5453; --on-live:#04201F;
+  --wait:#D9A03C; --wait-ink:#E5B963; --wait-bg:#35280F; --wait-br:#60491C; --on-wait:#1F1503;
+  --halt:#CE837B; --halt-bg:#33201D; --halt-br:#5E3A35;
+  --win:#5A96CE; --win-bg:#132536; --win-br:#2A4B68; --win-title:#24496E;
+  --ubu:#7A3F6A; --ubu-title:#46203C;
+  --calm-bg:#1B242D; --info-bg:#0E2E2E; --info-br:#1D5453; --info-ink:#5FCFCF;
+  --on-accent:#0A1620;
+  --scrim:rgba(3,7,11,.74);
+  --edge:rgba(255,255,255,.06);
+  --shadow:0 18px 44px rgba(0,0,0,.62);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bench); color:var(--bench-ink);
+  font-family:Archivo,"Helvetica Neue",Arial,sans-serif; font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  transition:background .22s ease, color .22s ease;
+}
+.mono{font-family:"DM Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--live);outline-offset:2px;border-radius:4px}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.015em}
+
+.topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 24px;border-bottom:1px solid var(--bench-line);background:var(--bench-deep)}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--bench-hi)}
+.brand span{color:var(--live)}
+.topnote{color:var(--bench-soft);font-size:13.5px}
+.topbar .spacer{margin-left:auto}
+.tbtn{border:1px solid var(--bench-line);padding:6px 12px;border-radius:7px;font-size:13.5px;color:var(--bench-ink);background:var(--bench-btn)}
+.tbtn:hover{border-color:var(--bench-line-hi);color:var(--bench-hi)}
+
+.scene{max-width:1380px;margin:0 auto;padding:26px 24px 60px}
+.lede{max-width:62ch;margin:0 0 26px}
+.lede h1{font-size:27px;line-height:1.2;color:var(--bench-hi);margin-bottom:8px}
+.lede p{margin:0;color:var(--bench-soft);font-size:15px}
+
+.bench{display:grid;grid-template-columns:1fr 108px 1fr;align-items:start;gap:0}
+
+.machine{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-height:660px;position:relative;transition:background .22s ease}
+.titlebar{display:flex;align-items:center;gap:10px;padding:9px 12px;color:var(--title-ink)}
+.machine[data-os="windows"] .titlebar{background:var(--win-title)}
+.machine[data-os="ubuntu"] .titlebar{background:var(--ubu-title)}
+.titlebar h2{font-size:14px;font-weight:600}
+.titlebar .osname{font-size:12.5px;opacity:.82;margin-left:2px}
+.wctl{margin-left:auto;display:flex;gap:7px;opacity:.7}
+.wctl i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.55);display:block}
+
+.tabs{display:flex;gap:2px;padding:8px 10px 0;background:var(--panel-2);border-bottom:1px solid var(--rule)}
+.tab{padding:7px 13px;border-radius:7px 7px 0 0;font-size:13.5px;color:var(--ink-soft);border:1px solid transparent;border-bottom:0;position:relative;top:1px}
+.tab[aria-selected="true"]{background:var(--panel);color:var(--ink);font-weight:600;border-color:var(--rule)}
+.tab:hover{color:var(--ink)}
+.tab .pip{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--halt);margin-left:6px;vertical-align:1px}
+
+.screen{padding:18px;flex:1;overflow-y:auto}
+.screen::-webkit-scrollbar{width:9px}
+.screen::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:9px}
+
+.taskbar{display:flex;align-items:center;gap:9px;padding:7px 12px;background:var(--taskbar);border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-soft)}
+.trayicon{display:flex;align-items:center;gap:7px;margin-left:auto;padding:3px 9px;border-radius:6px;border:1px solid transparent}
+.trayicon:hover{background:var(--taskbar-hover);border-color:var(--field-border)}
+.traydot{width:9px;height:9px;border-radius:50%;background:var(--ink-faint)}
+
+.link{align-self:stretch;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px 0;position:relative}
+.wire{position:relative;width:3px;flex:1;border-radius:3px;background:var(--wire);overflow:hidden;min-height:120px}
+.wire::after{content:"";position:absolute;inset:0;background:currentColor;opacity:0;transition:opacity .3s}
+.link[data-state="idle"],.link[data-state="streaming"]{color:var(--live)}
+.link[data-state="idle"] .wire::after{opacity:.5}
+.link[data-state="streaming"] .wire::after{opacity:.8}
+.link[data-state="paused"]{color:var(--wait)}
+.link[data-state="paused"] .wire::after{opacity:.55}
+.pulse{position:absolute;left:50%;transform:translateX(-50%);width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 12px currentColor;opacity:0}
+.link[data-state="streaming"] .pulse{opacity:1;animation:travel 1.15s linear infinite}
+@keyframes travel{from{top:-10px}to{top:100%}}
+.linklabel{font-size:11.5px;text-align:center;color:var(--bench-soft);max-width:100px;line-height:1.35}
+.link[data-state="idle"] .linklabel,.link[data-state="streaming"] .linklabel{color:var(--live)}
+.link[data-state="paused"] .linklabel{color:var(--wait)}
+.wifi{font-size:11px;color:var(--bench-faint);text-align:center}
+@media (prefers-reduced-motion:reduce){.link[data-state="streaming"] .pulse{animation:none;opacity:.9;top:46%}}
+
+.hd{font-size:17px;margin-bottom:3px}
+.sub{color:var(--ink-soft);font-size:13.5px;margin:0 0 16px}
+.rule{height:1px;background:var(--rule);margin:16px 0}
+
+.bigswitch{display:flex;align-items:center;gap:14px;padding:15px;border:1px solid var(--rule);border-radius:var(--radius);background:var(--surface)}
+.sw{width:56px;height:31px;border-radius:31px;background:var(--sw-off);position:relative;flex:none;transition:background .18s}
+.sw i{position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:50%;background:var(--sw-knob);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .18s}
+.sw[aria-checked="true"]{background:var(--live)}
+.sw[aria-checked="true"] i{left:28px}
+.bigswitch .lbl{font-weight:600;font-size:15.5px}
+.bigswitch .hint{color:var(--ink-soft);font-size:13px}
+
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:12.5px;font-weight:500;border:1px solid}
+.chip i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.chip.off{color:var(--ink-faint);border-color:var(--rule);background:var(--calm-bg)}
+.chip.available{color:var(--live-deep);border-color:var(--live-br);background:var(--live-bg)}
+.chip.busy{color:var(--win);border-color:var(--win-br);background:var(--win-bg)}
+.chip.paused{color:var(--wait-ink);border-color:var(--wait-br);background:var(--wait-bg)}
+
+.banner{display:flex;gap:11px;padding:12px 14px;border-radius:9px;font-size:13.5px;align-items:flex-start;margin-bottom:14px}
+.banner.warn{background:var(--wait-bg);border:1px solid var(--wait-br);color:var(--wait-ink)}
+.banner.info{background:var(--info-bg);border:1px solid var(--info-br);color:var(--info-ink)}
+.banner.calm{background:var(--calm-bg);border:1px solid var(--rule);color:var(--ink-soft)}
+.banner b{display:block;color:inherit}
+.banner .act{margin-left:auto;white-space:nowrap;text-decoration:underline;font-size:13px}
+
+.readouts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin:14px 0}
+.ro{background:var(--surface);padding:11px 12px}
+.ro .k{font-size:12px;color:var(--ink-faint);margin-bottom:3px}
+.ro .v{font-size:19px;font-weight:500;color:var(--ink)}
+.ro .v small{font-size:12.5px;color:var(--ink-faint);font-weight:400}
+.meter{height:5px;border-radius:5px;background:var(--track);margin-top:7px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--live);width:0;transition:width .4s}
+.meter i.hot{background:var(--halt)}
+.meter i.warm{background:var(--wait)}
+
+.row{display:flex;gap:14px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--rule)}
+.row:last-child{border-bottom:0}
+.row .txt{flex:1;min-width:0}
+.row .txt .t{font-size:14px;font-weight:500}
+.row .txt .d{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.row .ctl{flex:none;display:flex;align-items:center;gap:9px}
+.sw.sm{width:42px;height:24px}
+.sw.sm i{width:18px;height:18px}
+.sw.sm[aria-checked="true"] i{left:21px}
+
+select,input[type=text],input[type=number]{font:inherit;font-size:13.5px;padding:5px 9px;border:1px solid var(--field-border);border-radius:7px;background:var(--surface);color:var(--ink)}
+input[type=range]{width:150px;accent-color:var(--live)}
+.val{font-size:13px;color:var(--ink-soft);min-width:66px;text-align:right}
+
+.btn{padding:7px 14px;border-radius:8px;font-size:13.5px;font-weight:500;border:1px solid var(--rule);background:var(--surface);color:var(--ink)}
+.btn:hover{background:var(--panel-2)}
+.btn.pri{background:var(--live);border-color:var(--live);color:var(--on-live)}
+.btn.pri:hover{background:var(--live-deep);border-color:var(--live-deep)}
+.btn.danger{color:var(--halt);border-color:var(--halt-br);background:var(--surface)}
+.btn.danger:hover{background:var(--halt-bg)}
+.btn.sm{padding:4px 10px;font-size:12.5px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+
+.apps{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.apptag{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--rule);border-radius:7px;font-size:12.5px;background:var(--surface)}
+.apptag.live{border-color:var(--wait);background:var(--wait-bg);color:var(--wait-ink)}
+.apptag button{color:var(--ink-faint);font-size:15px;line-height:1}
+.apptag button:hover{color:var(--halt)}
+
+.model{display:flex;gap:13px;align-items:flex-start;padding:13px;border:1px solid var(--rule);border-radius:9px;background:var(--surface);margin-bottom:10px}
+.model .body{flex:1;min-width:0}
+.model .nm{font-size:14px;font-weight:600}
+.model .ds{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.model .meta{font-size:12px;color:var(--ink-faint);margin-top:6px}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:500;margin-left:7px;vertical-align:1px}
+.badge.fits{background:var(--live-bg);color:var(--live-deep)}
+.badge.nofit{background:var(--halt-bg);color:var(--halt)}
+.badge.loaded{background:var(--win-bg);color:var(--win)}
+.progress{height:6px;border-radius:6px;background:var(--track);margin-top:9px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--live);width:0}
+
+.device{display:flex;gap:13px;align-items:center;padding:14px;border:1px solid var(--rule);border-radius:9px;background:var(--surface);margin-bottom:10px}
+.device .ic{width:38px;height:38px;border-radius:8px;background:var(--win);color:var(--on-accent);display:grid;place-items:center;font-size:16px;font-weight:700;flex:none}
+.device .body{flex:1;min-width:0}
+.device .nm{font-weight:600;font-size:14.5px}
+.device .ds{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.empty{text-align:center;padding:40px 20px;color:var(--ink-soft)}
+.empty .big{font-size:15px;color:var(--ink);font-weight:500;margin-bottom:6px}
+.spinner{width:22px;height:22px;border:2.5px solid var(--track);border-top-color:var(--live);border-radius:50%;margin:0 auto 14px;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:3s}}
+
+.chatwrap{display:flex;flex-direction:column;height:100%;min-height:440px}
+.chathead{display:flex;align-items:center;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.chathead .who{font-weight:600;font-size:14.5px}
+.msgs{flex:1;overflow-y:auto;padding:14px 0;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:86%;padding:10px 13px;border-radius:11px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}
+.msg.me{align-self:flex-end;background:var(--ubu);color:#fff;border-bottom-right-radius:3px}
+.msg.ai{align-self:flex-start;background:var(--panel-2);color:var(--ink);border-bottom-left-radius:3px}
+.msg .caret{display:inline-block;width:7px;height:15px;background:var(--ink-soft);vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.composer{display:flex;gap:9px;padding-top:12px;border-top:1px solid var(--rule)}
+.composer input{flex:1;padding:9px 12px;border:1px solid var(--field-border);border-radius:9px;font:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+.loadbar{padding:11px 13px;background:var(--info-bg);border:1px solid var(--info-br);border-radius:9px;font-size:13px;color:var(--info-ink);margin-bottom:12px}
+
+.modal{position:absolute;inset:0;background:var(--scrim);display:grid;place-items:center;padding:20px;z-index:20}
+.card{background:var(--surface);border:1px solid var(--edge);border-radius:12px;padding:22px;max-width:330px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+.card h3{font-size:16.5px;margin-bottom:6px}
+.card p{font-size:13.5px;color:var(--ink-soft);margin:0 0 14px}
+.code{font-size:31px;font-weight:500;letter-spacing:.16em;text-align:center;padding:13px;background:var(--panel-2);border-radius:9px;margin-bottom:14px;color:var(--ink)}
+.card .acts{display:flex;gap:9px}
+.card .acts .btn{flex:1;justify-content:center;text-align:center}
+
+.traymenu{position:absolute;right:12px;bottom:42px;background:var(--surface);border:1px solid var(--rule);border-radius:9px;box-shadow:0 14px 34px rgba(0,0,0,.35);padding:6px;width:214px;z-index:15}
+.traymenu button{display:block;width:100%;text-align:left;padding:8px 11px;border-radius:7px;font-size:13.5px;color:var(--ink)}
+.traymenu button:hover{background:var(--panel-2)}
+.traymenu .sep{height:1px;background:var(--rule);margin:5px 0}
+
+.toasts{position:absolute;right:14px;bottom:48px;display:flex;flex-direction:column;gap:8px;z-index:14;pointer-events:none}
+.toast{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--wait);border-radius:9px;padding:10px 13px;box-shadow:0 10px 26px rgba(0,0,0,.28);font-size:13px;max-width:270px;color:var(--ink)}
+.toast b{display:block;font-size:13.5px;margin-bottom:2px}
+
+.safety{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:9px;overflow:hidden;font-size:13px}
+.safety>div{background:var(--surface);padding:12px}
+.safety h4{font-size:13px;margin-bottom:8px}
+.safety ul{margin:0;padding-left:17px;color:var(--ink-soft)}
+.safety li{margin-bottom:5px}
+.safety .yes h4{color:var(--live-deep)}
+.safety .no h4{color:var(--halt)}
+
+.welcome{padding:6px 2px}
+.welcome h3{font-size:21px;line-height:1.22;margin-bottom:9px}
+.welcome .points{margin:18px 0}
+.wpoint{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--rule)}
+.wpoint .n{width:26px;height:26px;border-radius:50%;background:var(--panel-2);display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--ink-soft);flex:none}
+.wpoint .t{font-weight:600;font-size:14px}
+.wpoint .d{font-size:13px;color:var(--ink-soft);margin-top:2px}
+
+.testbench{margin-top:30px;border:1px solid var(--bench-line);border-radius:var(--radius);background:var(--bench-deep);padding:18px 20px}
+.testbench h2{font-size:15px;color:var(--bench-hi);margin-bottom:4px}
+.testbench .tbnote{font-size:13px;color:var(--bench-soft);margin-bottom:16px;max-width:74ch}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:16px}
+.cgroup{border:1px solid var(--bench-line);border-radius:9px;padding:12px 13px;background:var(--bench-btn)}
+.cgroup h3{font-size:12.5px;color:var(--bench-soft);margin-bottom:9px;font-weight:500}
+.cbtns{display:flex;flex-wrap:wrap;gap:7px}
+.cbtn{border:1px solid var(--bench-line-hi);background:var(--bench-btn2);color:var(--bench-ink);padding:5px 10px;border-radius:7px;font-size:12.5px}
+.cbtn:hover{border-color:var(--live);color:var(--bench-hi)}
+.cbtn[aria-pressed="true"]{background:var(--wait);border-color:var(--wait);color:var(--on-wait);font-weight:500}
+.creadout{font-size:12px;color:var(--bench-soft);margin-top:9px;line-height:1.45}
+.creadout b{color:var(--bench-ink);font-weight:500}
+
+.foot{max-width:1380px;margin:0 auto;padding:0 24px 50px;color:var(--bench-soft);font-size:13px}
+
+@media (max-width:1000px){
+  .bench{grid-template-columns:1fr;gap:0}
+  .link{flex-direction:row;padding:16px 0;gap:14px}
+  .wire{width:auto;height:3px;flex:1;min-height:0}
+  .link[data-state="streaming"] .pulse{animation:travelx 1.15s linear infinite}
+  @keyframes travelx{from{left:0}to{left:100%}}
+  .machine{min-height:auto}
+  .readouts{grid-template-columns:1fr 1fr}
+  .safety{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">GPU<span>Share</span></div>
+  <div class="topnote">Interactive preview. Nothing here is real yet, but everything behaves the way the finished app will.</div>
+  <div class="spacer"></div>
+  <button class="tbtn" id="btnTheme">Dark</button>
+  <button class="tbtn" id="btnTour">How to use this preview</button>
+  <button class="tbtn" id="btnReset">Start over</button>
+</header>
+
+<main class="scene">
+  <div class="lede">
+    <h1>Two computers, one graphics card.</h1>
+    <p>On the left is your friend's Windows machine with the RTX A2000. On the right is your Ubuntu PC. Turn on sharing, connect the two, and chat. Use the test bench underneath to see what happens when he needs his computer back.</p>
+  </div>
+
+  <div class="bench">
+    <!-- ============ HOST ============ -->
+    <section class="machine" data-os="windows" id="hostMachine">
+      <div class="titlebar">
+        <h2>Dara's laptop</h2>
+        <span class="osname">Windows 11 &nbsp;·&nbsp; RTX A2000 8 GB</span>
+        <div class="wctl"><i></i><i></i><i></i></div>
+      </div>
+      <nav class="tabs" id="hostTabs" role="tablist">
+        <button class="tab" role="tab" data-tab="share">Share</button>
+        <button class="tab" role="tab" data-tab="limits">Limits</button>
+        <button class="tab" role="tab" data-tab="models">Models</button>
+        <button class="tab" role="tab" data-tab="access">Access</button>
+      </nav>
+      <div class="screen" id="hostScreen"></div>
+      <div class="toasts" id="hostToasts"></div>
+      <div class="taskbar">
+        <span>Windows</span>
+        <button class="trayicon" id="trayBtn"><span class="traydot" id="trayDot"></span> GPU Share</button>
+      </div>
+    </section>
+
+    <!-- ============ LINK ============ -->
+    <div class="link" id="link" data-state="none">
+      <div class="wifi">home Wi-Fi</div>
+      <div class="wire"><span class="pulse"></span></div>
+      <div class="linklabel" id="linkLabel">not connected</div>
+    </div>
+
+    <!-- ============ CLIENT ============ -->
+    <section class="machine" data-os="ubuntu" id="clientMachine">
+      <div class="titlebar">
+        <h2>Your PC</h2>
+        <span class="osname">Ubuntu 24.04 &nbsp;·&nbsp; no graphics card</span>
+        <div class="wctl"><i></i><i></i><i></i></div>
+      </div>
+      <nav class="tabs" id="clientTabs" role="tablist">
+        <button class="tab" role="tab" data-tab="devices">Computers</button>
+        <button class="tab" role="tab" data-tab="chat">Chat</button>
+      </nav>
+      <div class="screen" id="clientScreen"></div>
+      <div class="taskbar"><span>Ubuntu</span><span style="margin-left:auto" class="mono" id="clientClock"></span></div>
+    </section>
+  </div>
+
+  <!-- ============ TEST BENCH ============ -->
+  <section class="testbench">
+    <h2>Test bench</h2>
+    <p class="tbnote">These switches pretend to be real life on Dara's laptop. They are not part of the app he would install. Typing speed and model loading run at true speed for an RTX A2000. Rules counted in minutes run faster here so you don't have to wait five real minutes to see them work.</p>
+    <div class="controls">
+      <div class="cgroup">
+        <h3>Is he at his desk?</h3>
+        <div class="cbtns">
+          <button class="cbtn" id="ctlAtDesk" aria-pressed="false">He's using the laptop</button>
+        </div>
+        <div class="creadout" id="roDesk"></div>
+      </div>
+      <div class="cgroup">
+        <h3>What has he opened?</h3>
+        <div class="cbtns" id="ctlApps"></div>
+        <div class="creadout" id="roApps"></div>
+      </div>
+      <div class="cgroup">
+        <h3>Power and heat</h3>
+        <div class="cbtns">
+          <button class="cbtn" id="ctlBattery" aria-pressed="false">Unplug the charger</button>
+          <button class="cbtn" id="ctlHeat" aria-pressed="false">Block the fan vent</button>
+        </div>
+        <div class="creadout" id="roPower"></div>
+      </div>
+      <div class="cgroup">
+        <h3>Time of day</h3>
+        <div class="cbtns">
+          <button class="cbtn" data-hour="10">10am</button>
+          <button class="cbtn" data-hour="15">3pm</button>
+          <button class="cbtn" data-hour="21">9pm</button>
+          <button class="cbtn" data-hour="2">2am</button>
+        </div>
+        <div class="creadout" id="roClock"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="foot">
+  Preview build 0.1 · The performance figures shown are estimates for an NVIDIA RTX A2000 8 GB and still need to be measured on the real machine.
+</div>
+
+<script>
+/* ============================================================
+   GPU Share — interactive preview
+   Everything below is a simulation. No real GPU, network or model.
+   Numbers are estimates for an NVIDIA RTX A2000 8 GB.
+   ============================================================ */
+
+const CARD = { vram: 8.0, name: 'RTX A2000 8 GB' };
+const SIM_MINUTE = 1200;      // one simulated minute, in real milliseconds
+const IDLE_FREE_MS = 90000;   // shortened for the preview
+const GPU_HEAVY = ['Blender','DaVinci Resolve','Photoshop','Premiere Pro','After Effects','Unreal Engine','Cinema 4D','Steam','OBS Studio'];
+const APPS_ALL  = ['Blender','DaVinci Resolve','Photoshop','Premiere Pro','After Effects','Unreal Engine','Cinema 4D','Steam','OBS Studio'];
+
+const CATALOG = [
+  { id:'llama32-3b', name:'Llama 3.2 3B Instruct', quant:'Q4_K_M', fileGB:2.0, kvGB:0.25, tps:55,
+    desc:'Quick and light. Good for short questions, rewriting and summaries.', license:'Llama 3.2 Community License' },
+  { id:'mistral7b', name:'Mistral 7B Instruct v0.3', quant:'Q4_K_M', fileGB:4.4, kvGB:0.50, tps:31,
+    desc:'Steady all-rounder for everyday chat.', license:'Apache 2.0' },
+  { id:'qwen25-7b', name:'Qwen2.5 7B Instruct', quant:'Q4_K_M', fileGB:4.7, kvGB:0.50, tps:28,
+    desc:'The strongest model that fits this card. Better at code and step-by-step answers.', license:'Apache 2.0' },
+  { id:'qwen25-14b', name:'Qwen2.5 14B Instruct', quant:'Q4_K_M', fileGB:8.9, kvGB:0.90, tps:0,
+    desc:'Noticeably sharper, but it needs a bigger graphics card than this one.', license:'Apache 2.0' }
+];
+const model = id => CATALOG.find(m => m.id === id);
+const offered = () => S.host.installed.filter(id =>
+  !S.host.disabled.includes(id) && vramFor(model(id), S.host.ctx) <= S.host.budget);
+const vramFor = (m, ctx) => m.fileGB + m.kvGB * (ctx / 4096) + 0.5;
+
+/* ---------- state ---------- */
+let S, timer = null, streamTimer = null, loadTimer = null, scanTimer = null;
+
+function fresh() {
+  return {
+    host: {
+      welcomed:false, tab:'share', sharing:false, resumeAfterRestart:false,
+      budget:6.5, ctx:4096,
+      pauseWhenInUse:true, awayMin:5,
+      pauseApps:['Blender','DaVinci Resolve','Steam'],
+      pauseOnGpuUse:true, tempPause:83, tempResume:75,
+      pluggedOnly:true, hoursMode:'any', hoursFrom:19, hoursTo:8,
+      maxReply:1024,
+      installed:['llama32-3b','qwen25-7b'],
+      disabled:[], downloads:{},
+      paired:[], pending:null, usage:{}, trayOpen:false, toasts:[]
+    },
+    world:{ atDesk:false, awayAt:Date.now() - 999999, apps:[], battery:false, heat:false, hour:15 },
+    rt:{ state:'off', reason:'', loaded:null, loading:null, temp:38, tempBlocked:false, lastReq:0, streaming:false, aborted:false },
+    client:{ tab:'devices', scanning:true, paired:false, model:'qwen25-7b', msgs:[], waitingCode:null, wantChat:false }
+  };
+}
+
+/* ---------- policy loop ---------- */
+function inHours(){
+  const { hoursFrom:f, hoursTo:t } = S.host, h = S.world.hour;
+  return f <= t ? (h >= f && h < t) : (h >= f || h < t);
+}
+const fmtH = h => (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? 'am' : 'pm');
+function awayLeft(){
+  if (S.world.atDesk) return S.host.awayMin * SIM_MINUTE;
+  return Math.max(0, S.host.awayMin * SIM_MINUTE - (Date.now() - S.world.awayAt));
+}
+
+function policy(){
+  const h = S.host, w = S.world, rt = S.rt;
+  if (!h.sharing) return { state:'off', reason:'' };
+  if (h.pluggedOnly && w.battery) return { state:'paused', reason:'Your laptop is running on battery' };
+  if (h.hoursMode === 'schedule' && !inHours())
+    return { state:'paused', reason:'Outside your sharing hours, ' + fmtH(h.hoursFrom) + ' to ' + fmtH(h.hoursTo) };
+  const listed = w.apps.filter(a => h.pauseApps.includes(a));
+  if (listed.length) return { state:'paused', reason:listed[0] + ' is open' };
+  if (h.pauseOnGpuUse) {
+    const heavy = w.apps.filter(a => GPU_HEAVY.includes(a));
+    if (heavy.length) return { state:'paused', reason:heavy[0] + ' is using your graphics card' };
+  }
+  if (h.pauseWhenInUse && w.atDesk) return { state:'paused', reason:"You're using your computer" };
+  if (h.pauseWhenInUse && awayLeft() > 0)
+    return { state:'paused', reason:'Starts again in ' + Math.ceil(awayLeft() / SIM_MINUTE) + ' min', countdown:true };
+  if (rt.tempBlocked) return { state:'paused', reason:'Your graphics card is at ' + Math.round(rt.temp) + '°C' };
+  if (rt.streaming || rt.loading) return { state:'busy', reason:'' };
+  return { state:'available', reason:'' };
+}
+
+function tick(){
+  const rt = S.rt, h = S.host, w = S.world;
+
+  // temperature
+  let target = 40;
+  if (rt.streaming || rt.loading) target = w.heat ? 89 : 74;
+  else if (rt.loaded) target = w.heat ? 64 : 51;
+  else target = w.heat ? 52 : 39;
+  if (w.apps.some(a => GPU_HEAVY.includes(a))) target = Math.max(target, w.heat ? 86 : 69);
+  rt.temp += (target - rt.temp) * 0.12;
+  if (rt.temp >= h.tempPause) rt.tempBlocked = true;
+  if (rt.temp <= h.tempResume) rt.tempBlocked = false;
+
+  const p = policy();
+  const wasPaused = rt.state === 'paused';
+  const prev = rt.state;
+  rt.state = p.state; rt.reason = p.reason; rt.countdown = !!p.countdown;
+
+  // pausing or switching off frees the card
+  if ((p.state === 'paused' || p.state === 'off') && (rt.loaded || rt.loading || rt.streaming)) {
+    stopStream(true);
+    rt.loaded = null; rt.loading = null;
+    if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
+    if (p.state === 'paused' && !wasPaused) toast('Sharing paused', p.reason + '. Your graphics card is free again.');
+  }
+  if (rt.loaded && vramFor(model(rt.loaded), h.ctx) > h.budget) {
+    stopStream(true); rt.loaded = null;
+    toast('Model unloaded', 'It needs more memory than your limit allows.');
+  }
+  // free the card after a quiet spell
+  if (rt.loaded && !rt.streaming && !rt.loading && Date.now() - rt.lastReq > IDLE_FREE_MS) {
+    rt.loaded = null;
+    toast('Graphics card freed', 'No one has used it for a while, so the model was unloaded.');
+  }
+  const sig = [rt.state, rt.loading, S.host.sharing,
+               offered().join(',')].join('|');
+  if (sig !== lastClientSig) { lastClientSig = sig; if (!rt.streaming) renderClient(); }
+
+  syncLive();
+  if (hostNeedsRerender(prev)) renderHost();
+}
+let lastStructural = '', lastClientSig = '';
+function hostNeedsRerender(prev){
+  const key = [S.rt.state, !!S.rt.loaded, !!S.rt.loading, S.host.pending ? 1 : 0, S.host.paired.length].join('|');
+  if (key !== lastStructural) { lastStructural = key; return S.host.tab === 'share' || S.host.tab === 'models' || S.host.tab === 'access'; }
+  return false;
+}
+
+/* ---------- toasts ---------- */
+function toast(title, body){
+  const id = Math.random().toString(36).slice(2);
+  S.host.toasts.push({ id, title, body });
+  renderToasts();
+  setTimeout(() => { S.host.toasts = S.host.toasts.filter(t => t.id !== id); renderToasts(); }, 5200);
+}
+function renderToasts(){
+  document.getElementById('hostToasts').innerHTML =
+    S.host.toasts.map(t => `<div class="toast"><b>${t.title}</b>${t.body}</div>`).join('');
+}
+
+/* ============================================================
+   HOST SCREENS
+   ============================================================ */
+function renderHost(){
+  const el = document.getElementById('hostScreen');
+  document.querySelectorAll('#hostTabs .tab').forEach(t =>
+    t.setAttribute('aria-selected', t.dataset.tab === S.host.tab));
+  if (!S.host.welcomed) { el.innerHTML = screenWelcome(); return; }
+  el.innerHTML = ({ share:screenShare, limits:screenLimits, models:screenModels, access:screenAccess })[S.host.tab]();
+  syncLive();
+}
+
+function screenWelcome(){
+  return `<div class="welcome">
+    <h3>Lend your graphics card to a friend</h3>
+    <p class="sub">Your RTX A2000 sits idle most of the day. This app lets one friend on your Wi-Fi borrow it to run AI chat models, and only when you say so.</p>
+    <div class="points">
+      <div class="wpoint"><div class="n">1</div><div><div class="t">One switch, and it's yours again</div>
+        <div class="d">Turn sharing off and the app stops completely. Your graphics card is freed and your computer disappears from your friend's screen.</div></div></div>
+      <div class="wpoint"><div class="n">2</div><div><div class="t">It gets out of your way on its own</div>
+        <div class="d">Open Blender, unplug the charger, or just sit down at your desk, and sharing pauses without you doing anything.</div></div></div>
+      <div class="wpoint"><div class="n">3</div><div><div class="t">It cannot reach your files</div>
+        <div class="d">The app has no way to open, read, copy or send your files, and no one can see your screen or control your computer. It answers questions and nothing else.</div></div></div>
+    </div>
+    <button class="btn pri" data-act="welcome-done">Set up sharing</button>
+    <p class="sub" style="margin-top:14px;margin-bottom:0">You can change every setting later, and you'll be asked before anyone is allowed to connect.</p>
+  </div>`;
+}
+
+function statusChip(){
+  const s = S.rt.state;
+  const label = { off:'Off', available:'Ready', busy:'In use', paused:'Paused' }[s];
+  return `<span class="chip ${s}"><i></i>${label}</span>`;
+}
+
+function screenShare(){
+  const h = S.host, rt = S.rt;
+  const m = rt.loaded ? model(rt.loaded) : null;
+  const used = m ? vramFor(m, h.ctx) : 0;
+  const friend = h.paired[0];
+  return `
+  <div class="bigswitch">
+    <button class="sw" role="switch" aria-checked="${h.sharing}" data-act="toggle-share"><i></i></button>
+    <div>
+      <div class="lbl">Share my graphics card</div>
+      <div class="hint" id="switchHint"></div>
+    </div>
+    <div style="margin-left:auto">${statusChip()}</div>
+  </div>
+
+  <div id="hostBanner"></div>
+
+  <div class="readouts">
+    <div class="ro"><div class="k">Graphics card memory</div>
+      <div class="v mono" id="roVram">0.0<small> / 8.0 GB</small></div>
+      <div class="meter"><i id="roVramBar"></i></div></div>
+    <div class="ro"><div class="k">Temperature</div>
+      <div class="v mono" id="roTemp">38°C</div>
+      <div class="meter"><i id="roTempBar"></i></div></div>
+    <div class="ro"><div class="k">Used this week</div>
+      <div class="v mono" id="roMins">0<small> min</small></div>
+      <div class="hint" style="font-size:12px;color:var(--ink-faint);margin-top:7px">across ${h.paired.length} friend${h.paired.length===1?'':'s'}</div></div>
+  </div>
+
+  <div class="rule"></div>
+  <h4 class="hd">Right now</h4>
+  <div id="rightNow" class="sub" style="margin-bottom:14px"></div>
+
+  ${friend ? `<div class="row" style="border-top:1px solid var(--rule)">
+    <div class="txt"><div class="t">${friend.name}</div>
+      <div class="d">${(h.usage[friend.id]||{reqs:0}).reqs} question${((h.usage[friend.id]||{reqs:0}).reqs)===1?'':'s'} answered · ${Math.round(((h.usage[friend.id]||{gpuSec:0}).gpuSec)/60*10)/10} min of graphics card time</div></div>
+    <div class="ctl"><button class="btn sm danger" data-act="unpair" data-id="${friend.id}">Remove</button></div>
+  </div>` : `<div class="banner calm">No one is allowed to connect yet. When someone asks, you'll get a message here with a code to check.</div>`}
+  `;
+}
+
+function screenLimits(){
+  const h = S.host;
+  const m = model(offered()[0] || 'qwen25-7b');
+  const need = vramFor(m, h.ctx);
+  return `
+  <h4 class="hd">Your limits</h4>
+  <p class="sub">These rules decide when the app is allowed to run and how much of your machine it may use. You can change them any time.</p>
+
+  <div class="row"><div class="txt"><div class="t">Graphics card memory it may use</div>
+    <div class="d">Your card has 8 GB. Your current model needs about ${need.toFixed(1)} GB. Leave room for whatever you're working on.</div></div>
+    <div class="ctl"><input type="range" min="2" max="7.5" step="0.5" value="${h.budget}" data-key="budget"><span class="val mono">${h.budget.toFixed(1)} GB</span></div></div>
+
+  <div class="row"><div class="txt"><div class="t">How much of a conversation the model remembers</div>
+    <div class="d">Longer conversations use more memory on your card. ${h.ctx} words' worth uses about ${(m.kvGB*(h.ctx/4096)).toFixed(1)} GB.</div></div>
+    <div class="ctl"><select data-key="ctx">
+      ${[2048,4096,8192].map(c=>`<option value="${c}" ${c===h.ctx?'selected':''}>${c}</option>`).join('')}
+    </select></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Longest answer it will give</div>
+    <div class="d">Stops very long answers from tying up your card.</div></div>
+    <div class="ctl"><select data-key="maxReply">
+      ${[512,1024,2048].map(c=>`<option value="${c}" ${c===h.maxReply?'selected':''}>${c} words</option>`).join('')}
+    </select></div></div>
+
+  <div class="rule"></div>
+
+  <div class="row"><div class="txt"><div class="t">Pause while I'm using the computer</div>
+    <div class="d">Sharing stops the moment you touch the keyboard, and starts again once you've been away for a while.</div></div>
+    <div class="ctl"><button class="sw sm" role="switch" aria-checked="${h.pauseWhenInUse}" data-act="toggle" data-key="pauseWhenInUse"><i></i></button></div></div>
+
+  ${h.pauseWhenInUse ? `<div class="row"><div class="txt"><div class="t">Wait this long after I stop typing</div>
+    <div class="d">In this preview a minute passes in about a second, so you can watch it count down.</div></div>
+    <div class="ctl"><input type="range" min="1" max="15" step="1" value="${h.awayMin}" data-key="awayMin"><span class="val mono">${h.awayMin} min</span></div></div>` : ''}
+
+  <div class="row"><div class="txt"><div class="t">Pause when these programs are open</div>
+    <div class="d">Add anything you don't want sharing to interfere with.</div>
+    <div class="apps">
+      ${h.pauseApps.map(a=>`<span class="apptag ${S.world.apps.includes(a)?'live':''}">${a}<button data-act="app-remove" data-app="${a}" aria-label="Remove ${a}">×</button></span>`).join('')}
+      ${APPS_ALL.filter(a=>!h.pauseApps.includes(a)).length ? `<select data-key="app-add" style="font-size:12.5px">
+        <option value="">Add a program…</option>
+        ${APPS_ALL.filter(a=>!h.pauseApps.includes(a)).map(a=>`<option value="${a}">${a}</option>`).join('')}
+      </select>` : ''}
+    </div></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Pause when anything else uses the graphics card</div>
+    <div class="d">A safety net for programs you haven't listed above.</div></div>
+    <div class="ctl"><button class="sw sm" role="switch" aria-checked="${h.pauseOnGpuUse}" data-act="toggle" data-key="pauseOnGpuUse"><i></i></button></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Pause if the card gets hot</div>
+    <div class="d">Stops at ${h.tempPause}°C and waits until it cools to ${h.tempResume}°C.</div></div>
+    <div class="ctl"><input type="range" min="70" max="88" step="1" value="${h.tempPause}" data-key="tempPause"><span class="val mono">${h.tempPause}°C</span></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Only when the charger is plugged in</div>
+    <div class="d">Keeps sharing off your battery.</div></div>
+    <div class="ctl"><button class="sw sm" role="switch" aria-checked="${h.pluggedOnly}" data-act="toggle" data-key="pluggedOnly"><i></i></button></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Hours when sharing is allowed</div>
+    <div class="d">${h.hoursMode==='any'?'Any time of day.':'Only between '+fmtH(h.hoursFrom)+' and '+fmtH(h.hoursTo)+'.'}</div></div>
+    <div class="ctl"><select data-key="hoursMode">
+      <option value="any" ${h.hoursMode==='any'?'selected':''}>Any time</option>
+      <option value="schedule" ${h.hoursMode==='schedule'?'selected':''}>Evenings and nights</option>
+    </select></div></div>
+
+  <div class="row"><div class="txt"><div class="t">Keep sharing on after I restart</div>
+    <div class="d">Off means sharing always starts switched off when you turn the laptop on.</div></div>
+    <div class="ctl"><button class="sw sm" role="switch" aria-checked="${h.resumeAfterRestart}" data-act="toggle" data-key="resumeAfterRestart"><i></i></button></div></div>
+  `;
+}
+
+function screenModels(){
+  const h = S.host;
+  const installed = CATALOG.filter(m => h.installed.includes(m.id));
+  const available = CATALOG.filter(m => !h.installed.includes(m.id));
+  const card = m => {
+    const need = vramFor(m, h.ctx);
+    const fitsCard = need <= CARD.vram - 0.4;
+    const fitsBudget = need <= h.budget;
+    const on = !h.disabled.includes(m.id);
+    const isLoaded = S.rt.loaded === m.id, isLoading = S.rt.loading === m.id;
+    const dl = h.downloads[m.id];
+    return `<div class="model">
+      <div class="body">
+        <div class="nm">${m.name}
+          ${isLoaded?'<span class="badge loaded">On the card now</span>':''}
+          ${isLoading?'<span class="badge loaded">Loading…</span>':''}
+          ${!fitsCard?'<span class="badge nofit">Too big for this card</span>':(!fitsBudget?'<span class="badge nofit">Over your memory limit</span>':'<span class="badge fits">Fits your card</span>')}
+        </div>
+        <div class="ds">${m.desc}</div>
+        ${h.installed.includes(m.id) && fitsCard && !fitsBudget ? '<div class="ds" style="color:var(--halt)">Not offered to friends until you raise your memory limit.</div>' : ''}
+        <div class="meta mono">${m.fileGB.toFixed(1)} GB file · needs ${need.toFixed(1)} GB on the card · about ${m.tps||'—'} words/sec · ${m.license}</div>
+        ${dl ? `<div class="progress"><i style="width:${dl.pct}%"></i></div>
+          <div class="meta mono">${dl.stage}</div>` : ''}
+      </div>
+      <div class="ctl" style="display:flex;flex-direction:column;gap:7px;align-items:flex-end">
+        ${h.installed.includes(m.id)
+          ? `<button class="sw sm" role="switch" aria-checked="${on}" data-act="model-toggle" data-id="${m.id}" title="Offer this model to friends"><i></i></button>
+             <button class="btn sm danger" data-act="model-remove" data-id="${m.id}">Remove</button>`
+          : (dl ? `<button class="btn sm" disabled>Adding…</button>`
+                : `<button class="btn sm ${fitsCard?'pri':''}" data-act="model-add" data-id="${m.id}" ${fitsCard?'':'disabled'}>Add</button>`)}
+      </div>
+    </div>`;
+  };
+  return `
+  <h4 class="hd">Models on your machine</h4>
+  <p class="sub">These are the AI models your friend can choose from. Switch one off to keep it for yourself.</p>
+  ${installed.map(card).join('') || '<div class="banner calm">You have no models yet. Add one below.</div>'}
+  <div class="rule"></div>
+  <h4 class="hd">Models you can add</h4>
+  <p class="sub">Downloaded once, then kept on your disk. Each file is checked after downloading.</p>
+  ${available.map(card).join('')}`;
+}
+
+function screenAccess(){
+  const h = S.host;
+  return `
+  <h4 class="hd">Who can connect</h4>
+  <p class="sub">Only computers you've allowed. Everyone else on your Wi-Fi sees nothing but your name.</p>
+  ${h.paired.length ? h.paired.map(p => {
+    const u = h.usage[p.id] || { reqs:0, tokOut:0, gpuSec:0 };
+    return `<div class="row" style="border-top:1px solid var(--rule)">
+      <div class="txt"><div class="t">${p.name}</div>
+        <div class="d mono">${u.reqs} questions · ${u.tokOut} words written · ${Math.round(u.gpuSec/60*10)/10} min of card time</div></div>
+      <div class="ctl"><button class="btn sm danger" data-act="unpair" data-id="${p.id}">Remove</button></div></div>`;
+  }).join('') : '<div class="banner calm">No one yet.</div>'}
+
+  <div class="rule"></div>
+  <h4 class="hd">What this app can and cannot reach</h4>
+  <p class="sub">This is built into how the app works, not a setting you have to trust us on.</p>
+  <div class="safety">
+    <div class="yes"><h4>It can</h4><ul>
+      <li>Run models from its own folder</li>
+      <li>Answer questions from people you allowed</li>
+      <li>Download models you picked</li>
+      <li>Count how much each friend used</li>
+    </ul></div>
+    <div class="no"><h4>It cannot</h4><ul>
+      <li>Open, read, copy or change any of your files</li>
+      <li>Show your screen or control your computer</li>
+      <li>Run programs sent from the network</li>
+      <li>Keep a copy of anyone's questions or answers</li>
+    </ul></div>
+  </div>
+  <p class="sub" style="margin-top:14px">Your friend's questions are answered on your machine. The app doesn't store them, and you never see them.</p>`;
+}
+
+/* ---------- live patching ---------- */
+function syncLive(){
+  const h = S.host, rt = S.rt;
+  document.getElementById('link').dataset.state =
+    !S.client.paired ? 'none' : (rt.state === 'paused' ? 'paused' : (rt.streaming || rt.loading ? 'streaming' : (rt.state === 'off' ? 'none' : 'idle')));
+  document.getElementById('linkLabel').textContent =
+    !h.sharing ? 'not connected' : !S.client.paired ? 'waiting to be allowed' :
+    rt.state === 'paused' ? 'paused' : rt.loading ? 'loading model' : rt.streaming ? 'answering' : 'connected';
+  const dot = document.getElementById('trayDot');
+  if (dot) dot.style.background = { off:'var(--ink-faint)', available:'var(--live)', busy:'var(--win)', paused:'var(--wait)' }[rt.state];
+  document.getElementById('clientClock').textContent = String(S.world.hour).padStart(2,'0') + ':00';
+
+  const sw = document.querySelector('[data-act="toggle-share"]');
+  if (sw) sw.setAttribute('aria-checked', h.sharing);
+  const hint = document.getElementById('switchHint');
+  if (hint) hint.textContent = h.sharing
+    ? 'Your computer is visible to friends you have allowed.'
+    : 'Your computer is invisible and your graphics card is untouched.';
+
+  const m = rt.loaded ? model(rt.loaded) : null;
+  const used = m ? vramFor(m, h.ctx) : 0;
+  const vr = document.getElementById('roVram');
+  if (vr) {
+    vr.innerHTML = used.toFixed(1) + '<small> / 8.0 GB</small>';
+    document.getElementById('roVramBar').style.width = (used / CARD.vram * 100) + '%';
+    const t = document.getElementById('roTemp'); t.textContent = Math.round(rt.temp) + '°C';
+    const tb = document.getElementById('roTempBar');
+    tb.style.width = Math.min(100, (rt.temp - 30) / 60 * 100) + '%';
+    tb.className = rt.temp >= h.tempPause ? 'hot' : rt.temp >= 70 ? 'warm' : '';
+    const total = Object.values(h.usage).reduce((a,u) => a + u.gpuSec, 0);
+    document.getElementById('roMins').innerHTML = (Math.round(total/60*10)/10) + '<small> min</small>';
+  }
+
+  const chipHolder = document.querySelector('.bigswitch .chip');
+  if (chipHolder) chipHolder.outerHTML = statusChip();
+
+  const ban = document.getElementById('hostBanner');
+  if (ban) {
+    ban.innerHTML = rt.state === 'paused'
+      ? `<div class="banner warn"><div><b>Sharing is paused</b>${rt.reason}. It starts again on its own.</div>
+         <button class="act" data-act="go-limits">Change this rule</button></div>`
+      : (rt.state === 'off' && h.sharing === false && h.paired.length
+        ? `<div class="banner calm">Sharing is switched off. ${h.paired[0].name} can't reach your computer.</div>` : '');
+  }
+  const rn = document.getElementById('rightNow');
+  if (rn) {
+    rn.textContent =
+      rt.state === 'off' ? 'Nothing is running. The app is idle and your card is free.' :
+      rt.state === 'paused' ? 'Nothing is running. Your card was freed when sharing paused.' :
+      rt.loading ? 'Loading ' + model(rt.loading).name + ' onto your card.' :
+      rt.streaming ? (h.paired[0] ? h.paired[0].name : 'Your friend') + ' is chatting with ' + model(rt.loaded).name + '.' :
+      rt.loaded ? model(rt.loaded).name + ' is on your card, waiting for the next question.' :
+      'Ready. Nothing is loaded until someone asks a question.';
+  }
+
+  document.getElementById('roDesk').innerHTML =
+    S.world.atDesk ? 'He is at the keyboard.' :
+    (awayLeft() > 0 && S.host.pauseWhenInUse && S.host.sharing
+      ? 'Away. Sharing resumes in <b>' + Math.ceil(awayLeft()/SIM_MINUTE) + ' min</b>.'
+      : 'Away from the laptop.');
+  document.getElementById('roApps').innerHTML = S.world.apps.length
+    ? 'Open: <b>' + S.world.apps.join(', ') + '</b>' : 'Nothing heavy is open.';
+  document.getElementById('roPower').innerHTML =
+    (S.world.battery ? 'On <b>battery</b>' : 'Plugged in') + ', card at <b>' + Math.round(rt.temp) + '°C</b>'
+    + (S.world.heat ? '<br>Heat only builds while the card is answering something.' : '');
+  document.getElementById('roClock').innerHTML = 'It is <b>' + fmtH(S.world.hour) + '</b> on his laptop.';
+}
+
+/* ============================================================
+   CLIENT SCREENS
+   ============================================================ */
+function renderClient(){
+  const el = document.getElementById('clientScreen');
+  document.querySelectorAll('#clientTabs .tab').forEach(t =>
+    t.setAttribute('aria-selected', t.dataset.tab === S.client.tab));
+  el.innerHTML = S.client.tab === 'devices' ? screenDevices() : screenChat();
+  const msgs = document.getElementById('msgs');
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  syncLive();
+}
+
+function screenDevices(){
+  const visible = S.host.sharing;
+  const rt = S.rt;
+  const enabled = offered();
+  if (!visible) {
+    return `<div class="empty">
+      <div class="spinner"></div>
+      <div class="big">Looking for computers on your network</div>
+      <div>Nothing yet. A computer shows up here once its owner turns sharing on.</div>
+      <div class="rule"></div>
+      <div style="font-size:13px">Can't find a computer you expect? It may be on a different Wi-Fi, or the router may be blocking devices from seeing each other.</div>
+      <button class="btn sm" style="margin-top:12px" data-act="add-ip">Add by IP address</button>
+    </div>`;
+  }
+  const label = { available:'Ready', busy:'In use', paused:'Paused', off:'Off' }[rt.state];
+  return `
+  <h4 class="hd">Computers on your network</h4>
+  <p class="sub">Found by looking around your Wi-Fi, the same way LocalSend does.</p>
+  <div class="device">
+    <div class="ic">D</div>
+    <div class="body">
+      <div class="nm">Dara's laptop</div>
+      <div class="ds">Windows · RTX A2000 8 GB · ${enabled.length} model${enabled.length===1?'':'s'} offered</div>
+      <div style="margin-top:7px">
+        <span class="chip ${rt.state}"><i></i>${label}</span>
+        ${rt.state==='paused'?`<span class="ds" style="margin-left:8px">${rt.reason}</span>`:''}
+      </div>
+    </div>
+    <div>${S.client.paired
+      ? `<button class="btn pri sm" data-act="open-chat">Chat</button>`
+      : (S.client.waitingCode
+        ? `<button class="btn sm" disabled>Waiting…</button>`
+        : `<button class="btn sm" data-act="ask-connect">Ask to connect</button>`)}</div>
+  </div>
+  ${S.client.waitingCode ? `<div class="banner info"><div><b>Check the code with Dara</b>
+    Ask him to confirm he sees <span class="mono">${S.client.waitingCode}</span> on his screen, then say yes.</div></div>` : ''}
+  <div class="rule"></div>
+  <p class="sub" style="margin:0">Only computers that have allowed you will let you chat. Everything stays on your own network.</p>`;
+}
+
+function screenChat(){
+  const c = S.client, rt = S.rt;
+  if (!c.paired) return `<div class="empty"><div class="big">Not connected yet</div>
+    <div>Go to Computers and ask Dara's laptop to let you in.</div>
+    <button class="btn pri sm" style="margin-top:14px" data-act="go-devices">Open Computers</button></div>`;
+  const enabled = offered();
+  if (!enabled.includes(c.model)) c.model = enabled[0];
+  if (!enabled.length) return `<div class="empty"><div class="big">No models available</div>
+    <div>Dara has switched them all off, or they need more graphics card memory than he has allowed.</div></div>`;
+  const blocked = rt.state === 'paused' || rt.state === 'off';
+  return `<div class="chatwrap">
+    <div class="chathead">
+      <span class="who">Dara's laptop</span>
+      <select data-key="client-model" ${rt.streaming?'disabled':''}>
+        ${enabled.map(id=>`<option value="${id}" ${id===c.model?'selected':''}>${model(id).name}</option>`).join('')}
+      </select>
+      <span style="margin-left:auto">${statusChip()}</span>
+    </div>
+    <div class="msgs" id="msgs">
+      ${rt.loading ? `<div class="loadbar mono" id="loadbar">Loading ${model(rt.loading).name} onto his graphics card… ${S.rt.loadPct||0}%</div>` : ''}
+      ${blocked ? `<div class="banner warn" style="margin:0"><div><b>${rt.state==='off'?'Dara has switched sharing off':'Dara\'s computer is busy'}</b>${rt.state==='off'?'Nothing you send will get through until he turns it back on.':rt.reason+'. It will come back on its own.'}</div></div>` : ''}
+      ${c.msgs.length===0 && !blocked ? `<div class="empty" style="padding:26px 10px"><div class="big">Ask anything</div>
+        <div>The first question takes a few seconds longer while the model loads onto his card.</div></div>` : ''}
+      ${c.msgs.map(m => m.role==='note'
+        ? `<div class="banner calm" style="margin:0;font-size:12.5px">${m.text}</div>`
+        : `<div class="msg ${m.role==='user'?'me':'ai'}"${m.streaming?' id="streamMsg"':''}>${escapeHtml(m.text)}${m.streaming?'<span class="caret"></span>':''}</div>`).join('')}
+    </div>
+    <div class="composer">
+      <input id="chatInput" placeholder="${blocked?'Waiting for Dara\'s computer…':'Type a question'}" ${blocked||rt.streaming?'disabled':''}>
+      ${rt.streaming
+        ? `<button class="btn danger" data-act="stop">Stop</button>`
+        : `<button class="btn pri" data-act="send" ${blocked?'disabled':''}>Send</button>`}
+    </div>
+  </div>`;
+}
+const escapeHtml = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+function askConnect(){
+  const code = String(Math.floor(100000 + Math.random()*900000));
+  S.client.waitingCode = code;
+  S.host.pending = { id:'ubuntu-pc', name:'Your PC (Ubuntu)', code };
+  renderClient(); renderHost(); renderPairModal();
+}
+function renderPairModal(){
+  const old = document.getElementById('pairModal');
+  if (old) old.remove();
+  if (!S.host.pending) return;
+  const p = S.host.pending;
+  const el = document.createElement('div');
+  el.className = 'modal'; el.id = 'pairModal';
+  el.innerHTML = `<div class="card">
+    <h3>${p.name} wants to use your graphics card</h3>
+    <p>Check that your friend sees this same code before you allow it.</p>
+    <div class="code mono">${p.code}</div>
+    <div class="acts">
+      <button class="btn" data-act="pair-deny">Not now</button>
+      <button class="btn pri" data-act="pair-allow">Allow</button>
+    </div>
+    <p style="margin:13px 0 0;font-size:12.5px">Allowing this lets them ask questions. It does not give them access to anything else on your computer.</p>
+  </div>`;
+  document.getElementById('hostMachine').appendChild(el);
+}
+
+function send(){
+  const input = document.getElementById('chatInput');
+  const text = (input.value || '').trim();
+  if (!text) return;
+  input.value = '';
+  S.client.msgs.push({ role:'user', text });
+  S.rt.lastReq = Date.now();
+  const need = S.client.model;
+  if (S.rt.loaded !== need) startLoad(need, () => startStream(text));
+  else startStream(text);
+  renderClient();
+}
+
+function startLoad(id, then){
+  const m = model(id);
+  S.rt.loading = id; S.rt.loadPct = 0;
+  const total = m.fileGB * 1900;   // roughly 2.5 GB/s off an NVMe drive
+  const t0 = Date.now();
+  renderClient();
+  loadTimer = setInterval(() => {
+    if (S.rt.loading !== id) { clearInterval(loadTimer); loadTimer = null; return; }
+    const pct = Math.min(100, Math.round((Date.now()-t0)/total*100));
+    S.rt.loadPct = pct;
+    const lb = document.getElementById('loadbar');
+    if (lb) lb.textContent = `Loading ${m.name} onto his graphics card… ${pct}%`;
+    if (pct >= 100) {
+      clearInterval(loadTimer); loadTimer = null;
+      S.rt.loading = null; S.rt.loaded = id;
+      renderClient(); renderHost();
+      then();
+    }
+  }, 120);
+}
+
+const REPLIES = [
+  { k:['hello','hi','hey'], t:"Hello. I'm running on Dara's RTX A2000 over your home network. Ask me anything you'd normally ask a chat model." },
+  { k:['gpu','graphics','vram','card'], t:"The A2000 has 8 GB of memory, which comfortably holds a 7B model at 4-bit along with the conversation. A 14B model would need roughly 10 GB, so it won't fit on this card. Splitting one model across two computers is possible but slow over a home network, which is why this setup keeps each model on a single machine." },
+  { k:['recipe','cook','dinner'], t:"A quick one: fry chopped onion and garlic in oil until soft, add a tin of tomatoes and a pinch of sugar, simmer fifteen minutes, then stir through cooked pasta with plenty of black pepper and whatever cheese you have. Works on a weeknight and uses one pan." },
+  { k:['python','code','script','function'], t:"Here's a small example:\n\ndef chunks(items, size):\n    for i in range(0, len(items), size):\n        yield items[i:i + size]\n\nIt splits a list into pieces of a fixed size and yields them one at a time, so you never hold more than one chunk in memory. Call it with list(chunks(rows, 100))." },
+  { k:['email','write','draft'], t:"Try this:\n\nHi Sam,\n\nThanks for sending the files over. I've had a look and the second version works better for what we discussed. Could you send the source file when you get a moment?\n\nBest,\nAlex\n\nShort, says what you want, and gives them one clear thing to do." },
+  { k:['explain','what is','how does'], t:"The short version: the model is a large set of numbers that predicts the next piece of text, one piece at a time, based on everything before it. Nothing is looked up and nothing is remembered between conversations. What makes it feel coherent is that each prediction takes the whole conversation so far into account." }
+];
+const FALLBACK = [
+  "That depends on what you're after. If you tell me a bit more about the situation, I can give you something more specific than a general answer.",
+  "Good question. There isn't one right answer, but the usual approach is to start with the simplest version that works, see where it breaks, and only add complexity when something actually forces you to.",
+  "I'd break that into three parts: what you already know, what you need to find out, and what you can safely ignore for now. Most of the difficulty usually sits in the middle part."
+];
+function replyFor(q){
+  const low = q.toLowerCase();
+  const hit = REPLIES.find(r => r.k.some(k => low.includes(k)));
+  return hit ? hit.t : FALLBACK[Math.floor(Math.random()*FALLBACK.length)];
+}
+
+function startStream(question){
+  const m = model(S.rt.loaded);
+  S.rt.streamStart = Date.now(); S.rt.streamQ = question;
+  const full = replyFor(question);
+  const words = full.split(/(\s+)/);
+  let i = 0;
+  const msg = { role:'assistant', text:'', streaming:true };
+  S.client.msgs.push(msg);
+  S.rt.streaming = true; S.rt.aborted = false;
+  const started = Date.now();
+  renderClient(); renderHost();
+  const perChunk = 1000 / (m.tps / 1.35) / 2;   // words and gaps alternate
+  streamTimer = setInterval(() => {
+    if (!S.rt.streaming) { clearInterval(streamTimer); streamTimer = null; return; }
+    msg.text += words[i]; i++;
+    const node = document.getElementById('streamMsg');
+    if (node) node.innerHTML = escapeHtml(msg.text) + '<span class="caret"></span>';
+    const box = document.getElementById('msgs'); if (box) box.scrollTop = box.scrollHeight;
+    if (i >= words.length) {
+      clearInterval(streamTimer); streamTimer = null;
+      finishStream(started, full, question);
+    }
+  }, perChunk);
+}
+function finishStream(started, full, question){
+  const msg = S.client.msgs[S.client.msgs.length-1];
+  if (msg) msg.streaming = false;
+  S.rt.streaming = false; S.rt.lastReq = Date.now();
+  countUsage(started, question, full);
+  renderClient(); renderHost();
+}
+function countUsage(started, question, written){
+  const u = S.host.usage['ubuntu-pc'] || (S.host.usage['ubuntu-pc'] = { reqs:0, tokIn:0, tokOut:0, gpuSec:0 });
+  u.reqs++; u.tokIn += question.split(/\s+/).filter(Boolean).length;
+  u.tokOut += written.split(/\s+/).filter(Boolean).length;
+  u.gpuSec += (Date.now()-started)/1000;
+}
+function stopStream(silent){
+  if (!S.rt.streaming) return;
+  const partial = S.client.msgs[S.client.msgs.length-1];
+  countUsage(S.rt.streamStart, S.rt.streamQ || '', partial && partial.text ? partial.text : '');
+  S.rt.streaming = false;
+  if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+  const msg = S.client.msgs[S.client.msgs.length-1];
+  if (msg) msg.streaming = false;
+  if (silent) S.client.msgs.push({ role:'note', text:'Dara\'s computer stopped part way through: ' + (S.rt.reason || 'sharing was switched off') + '.' });
+  if (!silent) renderClient();
+}
+
+function startDownload(id){
+  const m = model(id);
+  S.host.downloads[id] = { pct:0, stage:'Starting…' };
+  renderHost();
+  const t0 = Date.now(), total = m.fileGB * 1000 * 2.2; // about 45 MB/s on home broadband, shortened
+  const iv = setInterval(() => {
+    const pct = Math.min(100, (Date.now()-t0)/total*100);
+    const mb = (m.fileGB*1024*pct/100).toFixed(0);
+    S.host.downloads[id] = { pct, stage: pct<100 ? `${mb} MB of ${(m.fileGB*1024).toFixed(0)} MB · 45 MB/s` : 'Checking the file…' };
+    if (S.host.tab === 'models') renderHost();
+    if (pct >= 100) {
+      clearInterval(iv);
+      setTimeout(() => {
+        delete S.host.downloads[id];
+        S.host.installed.push(id);
+        toast('Model added', m.name + ' is ready and checked.');
+        renderHost();
+      }, 1400);
+    }
+  }, 150);
+}
+
+/* ============================================================
+   EVENTS
+   ============================================================ */
+document.addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (tab) {
+    if (tab.closest('#hostTabs')) { S.host.tab = tab.dataset.tab; S.host.welcomed = true; renderHost(); }
+    else { S.client.tab = tab.dataset.tab; renderClient(); }
+    return;
+  }
+  const t = e.target.closest('[data-act]');
+  if (!t) {
+    if (S.host.trayOpen && !e.target.closest('#trayBtn')) { S.host.trayOpen = false; renderTray(); }
+    return;
+  }
+  const a = t.dataset.act;
+  if (a === 'welcome-done') { S.host.welcomed = true; renderHost(); }
+  else if (a === 'toggle-share') { setSharing(!S.host.sharing); }
+  else if (a === 'toggle') { S.host[t.dataset.key] = !S.host[t.dataset.key]; renderHost(); }
+  else if (a === 'go-limits') { S.host.tab = 'limits'; renderHost(); }
+  else if (a === 'app-remove') { S.host.pauseApps = S.host.pauseApps.filter(x => x !== t.dataset.app); renderHost(); }
+  else if (a === 'model-toggle') {
+    const id = t.dataset.id;
+    S.host.disabled = S.host.disabled.includes(id) ? S.host.disabled.filter(x=>x!==id) : S.host.disabled.concat(id);
+    renderHost(); renderClient();
+  }
+  else if (a === 'model-remove') {
+    const id = t.dataset.id;
+    if (S.rt.loaded === id) S.rt.loaded = null;
+    S.host.installed = S.host.installed.filter(x => x !== id);
+    renderHost(); renderClient();
+  }
+  else if (a === 'model-add') startDownload(t.dataset.id);
+  else if (a === 'ask-connect') askConnect();
+  else if (a === 'pair-allow') {
+    S.host.paired = [{ id:'ubuntu-pc', name:'Your PC (Ubuntu)' }];
+    S.host.usage['ubuntu-pc'] = { reqs:0, tokIn:0, tokOut:0, gpuSec:0 };
+    S.host.pending = null; S.client.waitingCode = null; S.client.paired = true;
+    S.client.tab = 'chat';
+    renderPairModal(); renderHost(); renderClient();
+    toast('Connected', 'Your PC (Ubuntu) can now ask questions.');
+  }
+  else if (a === 'pair-deny') { S.host.pending = null; S.client.waitingCode = null; renderPairModal(); renderHost(); renderClient(); }
+  else if (a === 'unpair') {
+    S.host.paired = []; S.client.paired = false; S.client.msgs = []; S.client.tab = 'devices';
+    stopStream(false); S.rt.loaded = null;
+    renderHost(); renderClient();
+  }
+  else if (a === 'open-chat') { S.client.tab = 'chat'; renderClient(); setTimeout(()=>{const i=document.getElementById('chatInput'); if(i) i.focus();},30); }
+  else if (a === 'go-devices') { S.client.tab = 'devices'; renderClient(); }
+  else if (a === 'send') send();
+  else if (a === 'stop') { stopStream(false); S.client.msgs.push({ role:'note', text:'You stopped the answer.' }); renderClient(); }
+  else if (a === 'add-ip') alert('In the finished app this asks for an address like 192.168.1.42, for networks where computers cannot find each other automatically.');
+  else if (a === 'tray') { S.host.trayOpen = !S.host.trayOpen; renderTray(); }
+  else if (a === 'tray-settings') { S.host.trayOpen = false; S.host.tab = 'limits'; S.host.welcomed = true; renderTray(); renderHost(); }
+  else if (a === 'tray-share') { S.host.trayOpen = false; setSharing(!S.host.sharing); renderTray(); }
+  else if (a === 'tray-quit') { S.host.trayOpen = false; setSharing(false); renderTray(); toast('GPU Share closed', 'Nothing is running until you open it again.'); }
+});
+
+function setSharing(on){
+  S.host.sharing = on;
+  if (!on) { stopStream(true); S.rt.loaded = null; S.rt.loading = null; S.client.waitingCode = null; }
+  else S.world.awayAt = Math.min(S.world.awayAt, Date.now());
+  renderHost(); renderClient();
+}
+function renderTray(){
+  const old = document.getElementById('trayMenu'); if (old) old.remove();
+  if (!S.host.trayOpen) return;
+  const el = document.createElement('div');
+  el.className = 'traymenu'; el.id = 'trayMenu';
+  el.innerHTML = `<button data-act="tray-share">${S.host.sharing?'Stop sharing':'Start sharing'}</button>
+    <button data-act="tray-settings">Open settings</button>
+    <div class="sep"></div>
+    <button data-act="tray-quit">Quit GPU Share</button>`;
+  document.getElementById('hostMachine').appendChild(el);
+}
+
+document.addEventListener('input', e => {
+  const k = e.target.dataset.key;
+  if (!k) return;
+  if (['budget','awayMin','tempPause'].includes(k)) {
+    S.host[k] = parseFloat(e.target.value);
+    if (k === 'tempPause') S.host.tempResume = S.host.tempPause - 8;
+    const v = e.target.parentElement.querySelector('.val');
+    if (v) v.textContent = k === 'budget' ? S.host.budget.toFixed(1)+' GB' : k === 'awayMin' ? S.host.awayMin+' min' : S.host.tempPause+'°C';
+  }
+});
+document.addEventListener('change', e => {
+  const k = e.target.dataset.key;
+  if (!k) return;
+  if (k === 'ctx' || k === 'maxReply') { S.host[k] = parseInt(e.target.value,10); renderHost(); }
+  else if (k === 'hoursMode') { S.host.hoursMode = e.target.value; renderHost(); }
+  else if (k === 'app-add' && e.target.value) { S.host.pauseApps.push(e.target.value); renderHost(); }
+  else if (k === 'client-model') { S.client.model = e.target.value; }
+  else if (['budget','awayMin','tempPause'].includes(k)) renderHost();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'chatInput') send();
+});
+document.getElementById('trayBtn').dataset.act = 'tray';
+
+/* ---------- test bench ---------- */
+function bench(){
+  const apps = ['Blender','Photoshop','Steam','Chrome'];
+  document.getElementById('ctlApps').innerHTML = apps.map(a =>
+    `<button class="cbtn" data-app="${a}" aria-pressed="${S.world.apps.includes(a)}">${a}</button>`).join('');
+}
+document.getElementById('ctlApps').addEventListener('click', e => {
+  const b = e.target.closest('[data-app]'); if (!b) return;
+  const a = b.dataset.app;
+  S.world.apps = S.world.apps.includes(a) ? S.world.apps.filter(x=>x!==a) : S.world.apps.concat(a);
+  bench(); renderHost(); renderClient();
+});
+document.getElementById('ctlAtDesk').addEventListener('click', e => {
+  S.world.atDesk = !S.world.atDesk;
+  if (!S.world.atDesk) S.world.awayAt = Date.now();
+  e.currentTarget.setAttribute('aria-pressed', S.world.atDesk);
+  e.currentTarget.textContent = S.world.atDesk ? 'He walked away' : "He's using the laptop";
+});
+document.getElementById('ctlBattery').addEventListener('click', e => {
+  S.world.battery = !S.world.battery;
+  e.currentTarget.setAttribute('aria-pressed', S.world.battery);
+  e.currentTarget.textContent = S.world.battery ? 'Plug the charger back in' : 'Unplug the charger';
+});
+document.getElementById('ctlHeat').addEventListener('click', e => {
+  S.world.heat = !S.world.heat;
+  e.currentTarget.setAttribute('aria-pressed', S.world.heat);
+  e.currentTarget.textContent = S.world.heat ? 'Clear the fan vent' : 'Block the fan vent';
+});
+document.querySelectorAll('[data-hour]').forEach(b => b.addEventListener('click', () => {
+  S.world.hour = parseInt(b.dataset.hour,10);
+  document.querySelectorAll('[data-hour]').forEach(x => x.setAttribute('aria-pressed', x === b));
+}));
+
+document.getElementById('btnReset').addEventListener('click', () => boot());
+document.getElementById('btnTour').addEventListener('click', () => alert(
+  "Try it in this order:\n\n" +
+  "1. On Dara's laptop, press Set up sharing, then turn on Share my graphics card.\n" +
+  "2. On your PC, his laptop appears. Press Ask to connect.\n" +
+  "3. Back on his laptop, check the code and press Allow.\n" +
+  "4. Ask a question. The first one waits while the model loads onto his card.\n" +
+  "5. While it's answering, use the test bench to open Blender, or press He's using the laptop.\n\n" +
+  "Watch what happens to his graphics card memory, and what you see on your side."
+));
+
+/* ---------- theme ---------- */
+let theme = document.documentElement.dataset.theme || 'light';
+function applyTheme(t){
+  theme = t;
+  document.documentElement.dataset.theme = t;
+  const b = document.getElementById('btnTheme');
+  b.textContent = t === 'dark' ? 'Light' : 'Dark';
+  b.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+}
+document.getElementById('btnTheme').addEventListener('click',
+  () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)')
+  .addEventListener('change', e => applyTheme(e.matches ? 'dark' : 'light'));
+applyTheme(theme);
+
+/* ---------- boot ---------- */
+function boot(){
+  if (timer) clearInterval(timer);
+  if (streamTimer) clearInterval(streamTimer);
+  if (loadTimer) clearInterval(loadTimer);
+  S = fresh();
+  document.querySelectorAll('[data-hour]').forEach(x => x.setAttribute('aria-pressed', x.dataset.hour === '15'));
+  const d = document.getElementById('ctlAtDesk'); d.setAttribute('aria-pressed', false); d.textContent = "He's using the laptop";
+  const b = document.getElementById('ctlBattery'); b.setAttribute('aria-pressed', false); b.textContent = 'Unplug the charger';
+  const ht = document.getElementById('ctlHeat'); ht.setAttribute('aria-pressed', false); ht.textContent = 'Block the fan vent';
+  const pm = document.getElementById('pairModal'); if (pm) pm.remove();
+  const tm = document.getElementById('trayMenu'); if (tm) tm.remove();
+  bench(); renderHost(); renderClient(); renderToasts();
+  timer = setInterval(tick, 500);
+  tick();
+}
+boot();
+
+</script>
+</body>
+</html>
