@@ -1,0 +1,54 @@
+name: CI
+
+# See docs/roadmap.md, Phase 0 (P0-T6) and "What to automate vs. verify by
+# hand". Ubuntu is where the real bar is: it can actually run the pure-logic
+# test suites. Windows can only compile here — there is no GPU, no NVML, and
+# no real desktop session in CI, so anything Windows-specific is verified by
+# hand on real hardware and tracked in the roadmap's manual checklist, not
+# here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust-ubuntu:
+    name: Rust tests + lint (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test (workspace)
+        run: cargo test --workspace --all-targets
+      - name: cargo clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  rust-windows-compile:
+    name: Rust compiles (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check (workspace)
+        run: cargo check --workspace --all-targets
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm run build

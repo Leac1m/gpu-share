@@ -1,0 +1,11 @@
+{
+  "protocol": "1.0",
+  "id": "b7f1c2a9e4d6f0a1c3b5d7e9f0a2c4b6d8e0f2a4c6b8d0e2f4a6c8b0d2e4f6a8",
+  "name": "Friend's Laptop",
+  "os": "windows",
+  "app_version": "0.1.0",
+  "modes": ["share", "use"],
+  "status": "available",
+  "port": 50123,
+  "announce": true
+}

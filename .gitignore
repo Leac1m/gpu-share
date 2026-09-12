@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/target/
+# Cargo.lock is checked in: this workspace will hold binaries (the Tauri
+# app), and binaries should pin exact dependency versions for reproducible
+# builds.
+
+# Node / frontend
+node_modules/
+dist/
+*.local
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# OS cruft
+.DS_Store
+Thumbs.db

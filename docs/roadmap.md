@@ -1,0 +1,459 @@
+# GPU Share — Roadmap and progress log
+
+**Purpose.** This file is the shared working memory for everyone (human or agent) touching this
+project. It answers three questions: what is planned, what is already done, and what someone
+learned the hard way that you should know before you start.
+
+| | |
+|---|---|
+| Companion spec | [gpu-share-project.md](gpu-share-project.md) — the source of truth for *what* and *why* |
+| This file | The source of truth for *state* — what is done, in progress, blocked, and why |
+| Last updated | 12 September 2026 |
+
+---
+
+## How to use this file (read before you start work)
+
+**Task IDs are permanent.** `P2-T5` always means the same task. Refer to them in commits, PRs,
+and notes. Never renumber; if a task dies, mark it `[dropped]` and say why in a note.
+
+**Status markers** go in the checkbox and an optional tag after the ID:
+
+| Marker | Meaning |
+|---|---|
+| `- [ ] P3-T1` | Not started |
+| `- [ ] P3-T1 [wip]` | Someone is on it right now |
+| `- [ ] P3-T1 [blocked]` | Can't proceed — a note must say what is blocking it |
+| `- [x] P3-T1` | Done, and the "done when" condition is actually met |
+| `- [ ] P3-T1 [dropped]` | No longer planned — a note must say why |
+
+**When you finish a task:** tick the box, update the phase counter in the dashboard, and update
+"Last updated" above.
+
+**When you learn something another agent would need:** add a note in that phase's Notes section.
+Worth a note: a decision and its reasoning, a version that had to be pinned, a library that didn't
+work, a measurement, a dead end, a gotcha that cost you an hour, an assumption you made that is
+not in the spec. Not worth a note: routine progress, restating the task, or anything the code and
+git history already say.
+
+**Note format** (append at the end of the phase's Notes section, newest last):
+
+```
+> `P2-T5` · 2026-09-12 · <who you are>
+> What you learned, in one or two sentences. Be concrete — name the version,
+> the error, the number, the file.
+```
+
+**Never edit or delete someone else's note.** If a note is now wrong, add a new one that says so
+and references the date of the one it supersedes.
+
+**Decisions** that answer an open question go in [Decisions](#decisions), not only in a note.
+
+---
+
+## What to automate vs. verify by hand
+
+No CI runner will ever have an RTX A2000, a Windows idle timer, or a real home router. That split
+is permanent, so the strategy is: **push logic into pure functions so the untestable surface stays
+small**, write automated tests around that surface, and verify the OS/hardware shims by hand once,
+on real machines.
+
+**Classify every task before starting it:**
+
+| Kind | Example tasks | Do this |
+|---|---|---|
+| Pure logic | Policy loop precedence, VRAM estimator, request clamping, GGUF header parsing, protocol (de)serialization | Write the test first. This is cheap and it's where regressions are invisible-by-clicking (e.g. two pause reasons swap precedence). |
+| Exposed surface / contract with the owner | Gatekeeper route allowlist, pairing auth matrix, "prompt text never stored" | Write the test **before** the feature. This is the executable form of the spec §7 safety claims — an agent adding a route later should hit a failing test, not just code review. |
+| OS / hardware shim | `GetLastInputInfo`, NVML, GPU perf counters, real multicast, tray icons, installers | No CI test. Wrap behind a small trait/struct (e.g. a `WorldSnapshot`) so the *consumer* of the shim is still pure and testable; verify the shim itself manually on real hardware and log it in the phase's Notes section. |
+
+**Concrete automated suites worth having, roughly in the order they become buildable:**
+
+1. Protocol round-trip tests with checked-in golden JSON fixtures (catches Rust↔frontend↔other-install drift) — *Phase 0*
+2. Policy loop precedence + hysteresis + away-countdown, table-driven (~40 cases) — *Phase 0, ported from the prototype's `policy()`*
+3. Gatekeeper route allowlist: assert the exact 5 endpoints in spec §6.8, 404 on ~30 plausible others — *Phase 2, write before the gatekeeper*
+4. Pairing auth matrix: unpaired / paired / unknown-cert × endpoint (15 cases) — *Phase 2/4*
+5. "No prompt or reply text stored": run a chat with a magic string, grep the raw SQLite file for it — *Phase 2*
+6. Request clamping: property test, `max_tokens` in the forwarded request never exceeds the owner's limit for any input — *Phase 2*
+7. VRAM estimator, pinned against the real Phase 5 hardware measurements once they exist — *Phase 0/6, updated Phase 5*
+8. GGUF header parser fuzz target: malformed input errors, never panics — *Phase 6*
+9. Supervisor lifecycle against a fake `llama-server` binary (crash → restart, stop → process actually dead) — *Phase 2*
+10. Download resume + SHA-256 against a local server that drops the connection mid-transfer — *Phase 6*
+
+**Manual verification checklist** (real hardware/network only, tracked here rather than in CI):
+
+- [ ] Windows idle timer and away-countdown feel right to the owner (`P5-T2`)
+- [ ] Named-app pause list actually catches the owner's creative apps (`P5-T3`)
+- [ ] GPU performance-counter pause fires when another app grabs the GPU (`P5-T4`)
+- [ ] NVML temperature hysteresis on the real A2000 — no flapping (`P5-T5`)
+- [ ] Battery / plugged-in detection (`P5-T6`)
+- [ ] Real multicast discovery across the actual home router, including the client-isolation case (`P3-T2`, `P3-T7`)
+- [ ] Windows network-profile (Private vs Public) first-run check (`P7-T2`)
+- [ ] Installer + firewall rule on a clean Windows machine (`P7-T1`)
+- [ ] Tray icon on both platforms (`P7-T5`)
+- [ ] Tokens/sec, load time, VRAM, temperature on the real A2000 (`P5-T11`)
+
+---
+
+## Dashboard
+
+| Phase | Goal | Done | Status |
+|---|---|---|---|
+| [0](#phase-0--foundations) | Foundations and decisions | 1 / 6 | In progress |
+| [1](#phase-1--clickable-prototype) | Clickable prototype | 3 / 8 | Prototype built, feedback not yet gathered |
+| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 9 | Not started |
+| [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
+| [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
+| [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
+| [6](#phase-6--model-library) | Model library | 0 / 8 | Not started |
+| [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 0 / 9 | Not started |
+| [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
+
+---
+
+## Where the project stands today
+
+The repository contains **documentation only**. No application code exists yet.
+
+| What exists | Where | State |
+|---|---|---|
+| Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.2, draft but detailed enough to build from |
+| Clickable Phase 1 prototype | [gpu-share-preview.html](gpu-share-preview.html) | Single self-contained HTML file, 1246 lines, vanilla JS. Runs in any browser, no build step |
+
+What the prototype actually simulates today: both machines side by side; the share switch; a
+policy loop (`policy()` / `tick()`) covering battery, schedule, named apps, GPU-heavy apps, idle
+timer with resume countdown, and temperature hysteresis; model library with fake downloads and a
+VRAM-fit check; pairing with a 6-digit code; a chat that streams at RTX A2000-ish speed; usage
+counters per paired device; tray menu; toasts; and a test bench that fakes the real-world signals.
+
+What it deliberately does not do: any networking, any real model, any persistence.
+
+---
+
+## Phase 0 — Foundations
+
+Turning the prototype into a real codebase. None of this is described as a phase in the spec, but
+Phase 2 can't start without it.
+
+- [x] **P0-T1** — Decide the frontend framework (Svelte or React). See [Decisions](#decisions). *(spec §5)*
+- [ ] **P0-T2** — Decide the project name. "GPU Share" is a working title. *(spec §9)*
+- [ ] **P0-T3 [wip]** — Scaffold the Tauri 2 workspace: Rust backend, web frontend, and a shared
+      `protocol` crate for every message and API type used by both modes. Builds on Ubuntu.
+      *(spec §5, §6.10)*
+- [ ] **P0-T4** — Port the prototype's screens into the chosen framework, with all data coming
+      from a mock layer behind an interface that real calls can later replace without redesign.
+      *(spec §8 Phase 1)*
+- [x] **P0-T5** — Choose and document the multicast group, multicast port, and gatekeeper TCP
+      port. Must not collide with LocalSend (224.0.0.167:53317). *(spec §6.6)*
+- [ ] **P0-T6 [wip]** — CI that builds and tests on both Ubuntu and Windows.
+
+**Done when:** `cargo build` and the frontend build both pass on Ubuntu and Windows, and the
+ported UI behaves like the HTML prototype.
+
+### Notes — Phase 0
+
+> `P0-T3` · 12 September 2026 · Claude (Sonnet 5)
+> What exists so far: root `Cargo.toml` workspace; `crates/protocol` with `discovery` (the
+> `Announcement` type, golden fixture at `crates/protocol/tests/fixtures/announcement.json`),
+> `gatekeeper` (the exact 5-endpoint allowlist from spec §6.8 as data, plus a test that fails if it
+> drifts), and `models` (`CatalogEntry` and the VRAM estimate formula) — 8 tests, all passing,
+> `cargo clippy -D warnings` clean. `apps/desktop` is a Svelte + TypeScript + Vite scaffold (via
+> `npm create vite@latest -- --template svelte-ts`), builds clean, but it is **not yet a Tauri app**
+> and still has the default Vite template content — P1's screens have not been ported in (that's
+> `P0-T4`).
+>
+> **What's blocked, and the handoff:** turning `apps/desktop` into an actual Tauri window needs
+> `cargo tauri init` plus Linux system libraries (`libwebkit2gtk-4.1-dev`,
+> `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `build-essential`) that need `sudo`,
+> which this environment doesn't have non-interactively. Whoever has a terminal with sudo on this
+> machine should run:
+> ```
+> sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+>   librsvg2-dev patchelf build-essential curl wget file
+> source "$HOME/.cargo/env"
+> cargo install tauri-cli --version "^2"
+> cd apps/desktop && cargo tauri init
+> ```
+> Point `cargo tauri init` at `apps/desktop` as the frontend dist and dev-server command it already
+> has (`npm run build` / `npm run dev`), and add `crates/protocol` as a path dependency of the
+> generated `src-tauri` crate. Once `src-tauri` exists, extend `.github/workflows/ci.yml` with a
+> `tauri-build` job that `apt-get install`s the same packages before `cargo check` — GitHub-hosted
+> Ubuntu runners have passwordless sudo, so that part isn't blocked, only local verification is.
+
+> `P0-T6` · 12 September 2026 · Claude (Sonnet 5)
+> `.github/workflows/ci.yml` created: an Ubuntu job runs `cargo test --workspace` and
+> `cargo clippy -- -D warnings`, a Windows job runs `cargo check --workspace` (compile-only —
+> Windows CI has no GPU/NVML/desktop session, see "What to automate vs. verify by hand" above), and
+> a third job builds the frontend. All three steps were run locally on Ubuntu and pass; the
+> workflow itself hasn't executed on GitHub Actions yet since nothing has been pushed. Marked
+> `[wip]` until a push/PR confirms it goes green there too — untick this note's confidence, not the
+> task, if it doesn't.
+
+> `P0-T5` · 12 September 2026 · Claude (Sonnet 5)
+> Picked `239.192.152.143:53737` for multicast (organization-local scope, RFC 2365) instead of
+> reusing anything in LocalSend's `224.0.0.0/24` global-scope block, and kept `50123` — already
+> used as the spec's own placeholder — as the real gatekeeper HTTPS port. Nothing consumes these
+> yet; they just need to land in `crates/protocol` (a `pub const` alongside `PROTOCOL_VERSION`)
+> when Phase 3 starts.
+
+---
+
+## Phase 1 — Clickable prototype
+
+Goal: friends see and click every screen before anything technical exists, and shape it.
+
+- [x] **P1-T1** — Host screens: first-run welcome, tray menu, Share screen with switch and live
+      status, resource limits, model library with downloads and removal, paired devices, pairing
+      popup, and "paused because…" notices.
+- [x] **P1-T2** — Client screens: device list with live statuses, pairing flow, streaming chat,
+      model switching with a loading message, and the host-paused message.
+- [x] **P1-T3** — Test bench that fakes real life on the friend's laptop (at desk / away, running
+      apps, battery, heat, time of day) so every pause rule can be demonstrated.
+- [ ] **P1-T4** — Publish the preview as a web link that opens in any browser, with every screen
+      labelled as a preview.
+- [ ] **P1-T5** — Run the feedback session with the host friend. Watch where he hesitates rather
+      than asking whether he likes it. Cover: are the setting names clear, are the defaults right,
+      which apps should pause sharing, does he want notifications, and can he explain in his own
+      words what the switch does and what the app cannot do. *(spec §8 Phase 1)*
+- [ ] **P1-T6** — Write the feedback up in this repo, including the exact wording he used for
+      things he misread.
+- [ ] **P1-T7** — Apply the agreed UI changes to the prototype.
+- [ ] **P1-T8** — Confirm the settings defaults and the pre-filled pause-app list from what he
+      said. Current placeholders: budget 6.5 GB, context 4096, away 5 min, pause apps Blender /
+      DaVinci Resolve / Steam, temp 83→75 °C, plugged-in only, max reply 1024. *(spec §6.4)*
+
+**Done when:** friends have tried it and the UI changes are agreed.
+
+### Notes — Phase 1
+
+> `P1-T1` `P1-T2` `P1-T3` · 2026-09-12 · project author
+> Built as one self-contained HTML file rather than a framework app, so it can be handed to a
+> non-technical friend as a link with nothing to install. The state shape in `fresh()` and the
+> JSON formats follow spec §6 deliberately — reuse them when porting (P0-T4) so the mock/real
+> swap stays a drop-in.
+
+> `P1-T8` · 2026-09-12 · project author
+> The defaults in the prototype are proposals, not decisions. Do not treat them as agreed until
+> P1-T5 has happened. Note the budget is 6.5 GB in the prototype and 6 GB in the spec table —
+> reconcile the two when the real setting is built.
+
+---
+
+## Phase 2 — Real chat end to end
+
+Build the gatekeeper and engine supervisor and connect the chat screen to them. Developed on the
+Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU needed for this phase**.
+
+- [ ] **P2-T1** — Vendor or locate `llama-server`; a CPU build plus a small GGUF model for dev.
+      Pin the version. *(spec §5)*
+- [ ] **P2-T2** — Engine supervisor: one process per model, start/stop on demand, health check,
+      restart on crash, failures surfaced in the UI. *(spec §6.2)*
+- [ ] **P2-T3** — Engine hardening: bind `127.0.0.1` only, random API key generated at each start,
+      `--parallel 1`, `--slot-save-path` left disabled. *(spec §6.2)*
+- [ ] **P2-T4** — Windows Job Object wrapper: kill-on-close, memory cap, below-normal CPU
+      priority. Stub or no-op on Linux. *(spec §6.2)*
+- [ ] **P2-T5** — Gatekeeper: HTTPS server (axum + rustls) exposing exactly the five endpoints in
+      spec §6.8. Everything else returns 404.
+- [ ] **P2-T6** — Request queue: one request at a time, waiting clients told their position,
+      engine work cancelled when the client disconnects or presses Stop. *(spec §6.8)*
+- [ ] **P2-T7** — Request clamping: cap `max_tokens`, ignore any parameter that could push
+      resource use past the owner's limits. *(spec §6.8)*
+- [ ] **P2-T8** — Client chat wired to the gatekeeper: streaming replies, Stop button, model
+      picker, markdown and code formatting, SQLite history on the client. *(spec §6.9)*
+- [ ] **P2-T9** — Per-device usage counters in SQLite (requests, tokens in/out, GPU seconds), with
+      a test asserting prompt and reply text is never written anywhere. *(spec §6.8)*
+
+**Done when:** chat streams through the real gatekeeper and the real engine.
+
+### Notes — Phase 2
+
+> `P2-T2` · 2026-09-12 · project author
+> One process per model, not llama-server's router mode: a known issue leaves each idle child
+> holding ~600 MB of VRAM after its model is put to sleep, which is unaffordable on an 8 GB card.
+> See llama.cpp issue #19379. Switching model = stop one process, start another; when sharing
+> stops, VRAM use must return to zero. Do not "optimise" this back to router mode without
+> re-checking that issue.
+
+---
+
+## Phase 3 — Discovery
+
+LocalSend-style announcement on the LAN, with fallbacks for routers that misbehave.
+
+- [ ] **P3-T1** — Announcement message type in the shared `protocol` crate, carrying a protocol
+      version so mismatched installs can tell. *(spec §6.6, §6.10)*
+- [ ] **P3-T2** — UDP multicast announce and listen: on startup, on every status change, and a
+      ~15 s heartbeat. Clients drop a device after three missed heartbeats.
+- [ ] **P3-T3** — Reply path: `POST /api/register` over HTTPS, falling back to a multicast reply
+      with `"announce": false` if HTTPS fails.
+- [ ] **P3-T4** — Subnet scan fallback: `GET /api/info` across the local /24.
+- [ ] **P3-T5** — "Add by IP address" manual option.
+- [ ] **P3-T6** — On Ubuntu, pick the real LAN interface and ignore virtual ones (Docker bridges,
+      VPNs). If ufw is on, tell the user which port to allow.
+- [ ] **P3-T7** — Detect client isolation / blocked multicast (guest Wi-Fi, some mesh routers) and
+      explain it in plain language rather than failing silently.
+- [ ] **P3-T8** — Verify that with the switch off the host announces nothing and is invisible.
+
+**Done when:** devices appear and disappear correctly on the real home network.
+
+### Notes — Phase 3
+
+_None yet._
+
+---
+
+## Phase 4 — Pairing and security
+
+Being on the same Wi-Fi must not be enough to use someone's GPU.
+
+- [ ] **P4-T1** — Per-install key pair and self-signed certificate (rcgen). The certificate's
+      SHA-256 fingerprint is the device's permanent ID. *(spec §6.7)*
+- [ ] **P4-T2** — Certificate pinning in both directions after pairing.
+- [ ] **P4-T3** — `POST /api/pair` plus the owner-facing popup with a matching 6-digit code on
+      both screens. Nothing is granted until the owner clicks Allow.
+- [ ] **P4-T4** — Device tokens issued on approval and stored in SQLite on the host.
+- [ ] **P4-T5** — Paired devices list with a Remove button per device.
+- [ ] **P4-T6** — Verify unpaired devices can read name, status and protocol version and nothing
+      else: `/v1/models` and `/v1/chat/completions` must reject them.
+- [ ] **P4-T7** — Security review of the gatekeeper's exposed surface against the claims in spec
+      §7. Every "cannot" in that table needs a test or a structural argument.
+
+**Done when:** only paired devices can chat.
+
+### Notes — Phase 4
+
+_None yet._
+
+---
+
+## Phase 5 — Limits wired up
+
+The policy loop with real signals, on the friend's laptop. This is the first real GPU test.
+
+- [ ] **P5-T1** — Policy loop running every couple of seconds, driving the Off / Available / Busy
+      / Paused state machine and what clients see. The prototype's `policy()` is the reference
+      implementation of the precedence order. *(spec §6.3)*
+- [ ] **P5-T2** — "Pause while I'm using the PC": Windows idle timer (`GetLastInputInfo`) with the
+      resume-after-away delay.
+- [ ] **P5-T3** — "Pause when these apps are open": running-process watcher, plus a picker that
+      offers the apps currently running.
+- [ ] **P5-T4** — "Pause when another app uses the GPU": Windows GPU performance counters (the
+      ones Task Manager uses), because NVML often can't report per-app VRAM on Windows.
+- [ ] **P5-T5** — NVML: temperature limit with hysteresis (pause 83 °C, resume 75 °C) and a free-
+      VRAM check immediately before loading a model.
+- [ ] **P5-T6** — "Only when plugged in": `GetSystemPowerStatus`.
+- [ ] **P5-T7** — Allowed hours: weekly schedule checked by the policy loop.
+- [ ] **P5-T8** — GPU memory budget enforced before load, and max conversation length passed to
+      the engine as `-c`.
+- [ ] **P5-T9** — Free the GPU after idle, and keep the PC awake with `SetThreadExecutionState`
+      while serving — releasing it as soon as the host goes idle or pauses.
+- [ ] **P5-T10** — Graceful mid-reply pause: the reply finishes or is cut within a few seconds and
+      the client shows the reason with a retry, never a raw error. *(spec §6.3, §6.9)*
+- [ ] **P5-T11** — First real GPU measurements on the RTX A2000: tokens per second, model load
+      time, VRAM use, temperatures. Record the numbers in the notes below.
+
+**Done when:** every pause rule works on the friend's laptop.
+
+### Notes — Phase 5
+
+> `P5-T1` · 2026-09-12 · project author
+> Low CPU priority does not stop the engine competing for the GPU, and Windows gives apps no
+> control over GPU scheduling. The pause rules are the only thing actually protecting the owner's
+> experience — treat any regression in them as a release blocker, not a polish item.
+
+---
+
+## Phase 6 — Model library
+
+- [ ] **P6-T1** — Catalog hosted as a JSON file (GitHub Releases is the default option), with two
+      or three starter models — one 3-4B, one 7-8B, both 4-bit — after checking their licences.
+      *(spec §6.5, §9)*
+- [ ] **P6-T2** — Catalog fetch and cache in the app, with a sensible offline fallback.
+- [ ] **P6-T3** — Resumable downloads with a free-disk-space check first.
+- [ ] **P6-T4** — SHA-256 verification after download. Models saved only into the app's own
+      models folder.
+- [ ] **P6-T5** — GGUF header parsing: layer count, attention heads, embedding size.
+- [ ] **P6-T6** — VRAM estimate (file size + KV cache + ~0.5 GB overhead) driving the "Fits your
+      GPU" badge and the greyed-out state.
+- [ ] **P6-T7** — Per-model controls: enable/disable (disabled models hidden from clients), set as
+      default, remove — unloading first if the model is loaded.
+- [ ] **P6-T8** — Advanced toggle: add from a Hugging Face link.
+
+**Done when:** download, verify, and "fits your GPU" work end to end.
+
+### Notes — Phase 6
+
+_None yet._
+
+---
+
+## Phase 7 — Installers, updates, pilot
+
+- [ ] **P7-T1** — NSIS per-user installer for Windows, adding a firewall rule for private
+      networks. No separate Tailscale, Python, or CUDA install steps. *(spec §3 R1, §6.10)*
+- [ ] **P7-T2** — First-run check that the Windows network profile is Private, with a plain-
+      language explanation of how to change it.
+- [ ] **P7-T3** — CUDA runtime downloaded on first run rather than shipped inside the installer
+      (several hundred MB).
+- [ ] **P7-T4** — Ubuntu client packages: `.deb` for 22.04 and 24.04 (pulling in WebKitGTK 4.1)
+      and an AppImage. No engine bundled.
+- [ ] **P7-T5** — Tray icon working on both platforms: native on Windows, AppIndicator on Ubuntu.
+- [ ] **P7-T6** — Tauri auto-updater with signed update packages, so engine security fixes reach
+      hosts without them doing anything.
+- [ ] **P7-T7** — Code-signing certificate: cost, timing, and purchase decision. Without one,
+      Windows shows "Windows protected your PC" — acceptable for the pilot if the friend is
+      warned, not acceptable for wider release. *(spec §9)*
+- [ ] **P7-T8** — Pin the engine version per release and define the test procedure before bumping
+      it. llama.cpp moves quickly.
+- [ ] **P7-T9** — Two-week pilot with the friend, then review the usage counts and his experience.
+
+**Done when:** the two-week pilot is completed with no blocking issues.
+
+### Notes — Phase 7
+
+_None yet._
+
+---
+
+## Later (backlog)
+
+Deliberately out of scope for now. The design keeps each of these possible; none is built.
+
+- [ ] **L-T1** — Remote access over an embedded Tailscale connection, so sharing works outside the
+      home network. The network layer is kept separate for this. *(spec R11)*
+- [ ] **L-T2** — Several hosts, with requests sent to whichever friend's PC is available.
+- [ ] **L-T3** — Renting: pricing, payments, per-device billing from the usage counts, terms of
+      use. Per-device identity and usage counts exist from day one for this. *(spec R10)*
+- [ ] **L-T4** — CPU-only host mode for Linux.
+- [ ] **L-T5** — Local OpenAI-compatible API on the client's `localhost` that forwards to the
+      chosen host, so editors and scripts can use the host's GPU. *(spec §6.9 — pull forward into
+      Phase 2 if it turns out to be cheap)*
+
+### Notes — Later
+
+_None yet._
+
+---
+
+## Decisions
+
+Open questions from spec §9. When you resolve one, fill in the decision and the date, and tick the
+task that depended on it. If you resolve something not listed here, add a row.
+
+| # | Question | Status | Decision | Date |
+|---|---|---|---|---|
+| D1 | Project name | Open | — | — |
+| D2 | Frontend framework (Svelte or React) | Decided | Svelte — smaller runtime, less boilerplate for a state-machine-heavy UI (share switch, policy states, streaming chat) | 12 September 2026 |
+| D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option | — |
+| D4 | Code-signing certificate: cost and timing | Open | — | — |
+| D5 | Which models go in the first catalog (licences checked) | Open | — | — |
+| D6 | Which apps to pre-fill in the pause list | Open | Ask the friend during P1-T5 | — |
+| D7 | Multicast group and ports (must not collide with LocalSend) | Decided | Multicast `239.192.152.143:53737` (organization-local scope per RFC 2365, distinct from LocalSend's global-scope `224.0.0.167:53317`). Gatekeeper HTTPS on `50123` (the spec's own placeholder, kept as the real default). | 12 September 2026 |
+| D8 | How renting would work, if it happens | Deferred | — | — |
+
+---
+
+## Change log
+
+| Date | Change |
+|---|---|
+| 12 September 2026 | Roadmap created from spec v0.2. Phase 1 prototype tasks marked done. |

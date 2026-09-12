@@ -1,0 +1,17 @@
+//! Shared wire types for GPU Share.
+//!
+//! Both the host and the client link this crate, so a message can never drift
+//! out of sync between the two sides of one machine. It does **not** protect
+//! against drift between two different *installs* talking over the network —
+//! that is what [`PROTOCOL_VERSION`] and the golden fixtures under `tests/`
+//! are for. See `docs/roadmap.md`, Phase 0 and Phase 3, for the tasks that
+//! build on this crate.
+
+pub mod discovery;
+pub mod gatekeeper;
+pub mod models;
+
+/// The wire protocol version this build speaks. Bump it whenever a message
+/// shape changes in a way that isn't backward compatible, and see spec
+/// §6.10 ("Protocol versioning") before doing so.
+pub const PROTOCOL_VERSION: &str = "1.0";
