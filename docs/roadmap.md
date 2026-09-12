@@ -98,7 +98,7 @@ on real machines.
 
 | Phase | Goal | Done | Status |
 |---|---|---|---|
-| [0](#phase-0--foundations) | Foundations and decisions | 1 / 6 | In progress |
+| [0](#phase-0--foundations) | Foundations and decisions | 5 / 6 | In progress |
 | [1](#phase-1--clickable-prototype) | Clickable prototype | 3 / 8 | Prototype built, feedback not yet gathered |
 | [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 9 | Not started |
 | [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
@@ -135,11 +135,11 @@ Turning the prototype into a real codebase. None of this is described as a phase
 Phase 2 can't start without it.
 
 - [x] **P0-T1** — Decide the frontend framework (Svelte or React). See [Decisions](#decisions). *(spec §5)*
-- [ ] **P0-T2** — Decide the project name. "GPU Share" is a working title. *(spec §9)*
-- [ ] **P0-T3 [wip]** — Scaffold the Tauri 2 workspace: Rust backend, web frontend, and a shared
+- [x] **P0-T2** — Decide the project name. "GPU Share" is a working title. *(spec §9)*
+- [x] **P0-T3** — Scaffold the Tauri 2 workspace: Rust backend, web frontend, and a shared
       `protocol` crate for every message and API type used by both modes. Builds on Ubuntu.
       *(spec §5, §6.10)*
-- [ ] **P0-T4** — Port the prototype's screens into the chosen framework, with all data coming
+- [x] **P0-T4** — Port the prototype's screens into the chosen framework, with all data coming
       from a mock layer behind an interface that real calls can later replace without redesign.
       *(spec §8 Phase 1)*
 - [x] **P0-T5** — Choose and document the multicast group, multicast port, and gatekeeper TCP
@@ -179,6 +179,20 @@ ported UI behaves like the HTML prototype.
 > `tauri-build` job that `apt-get install`s the same packages before `cargo check` — GitHub-hosted
 > Ubuntu runners have passwordless sudo, so that part isn't blocked, only local verification is.
 
+> `P0-T3` · 12 September 2026 · Claude (Sonnet 5)
+> Sudo step above is done and `cargo tauri init` has run (`apps/desktop/src-tauri` exists, committed
+> in `35686a5`). Finished the wiring the handoff called for: added `apps/desktop/src-tauri` to the
+> root workspace `members`, and added `protocol = { path = "../../../crates/protocol" }` to
+> `apps/desktop/src-tauri/Cargo.toml` — neither had been done yet, so `cargo check` from
+> `src-tauri` failed with "current package believes it's in a workspace when it's not" until fixed.
+> `cargo check/test/clippy --workspace --all-targets` all pass now, protocol's 8 tests still green.
+> Also added the missing `apt-get install` step (the same package list from the sudo command above)
+> to the `rust-ubuntu` CI job, since the workflow would otherwise fail on GitHub's runner the same
+> way it did locally before the packages were installed. Not yet pushed, so CI going green there is
+> still unconfirmed — same caveat as the `P0-T6` note below. Marking `P0-T3` done since the scaffold
+> itself (Rust backend + web frontend + shared protocol crate, building on Ubuntu) is complete;
+> porting the Phase 1 screens into it is the separate `P0-T4`.
+
 > `P0-T6` · 12 September 2026 · Claude (Sonnet 5)
 > `.github/workflows/ci.yml` created: an Ubuntu job runs `cargo test --workspace` and
 > `cargo clippy -- -D warnings`, a Windows job runs `cargo check --workspace` (compile-only —
@@ -194,6 +208,30 @@ ported UI behaves like the HTML prototype.
 > used as the spec's own placeholder — as the real gatekeeper HTTPS port. Nothing consumes these
 > yet; they just need to land in `crates/protocol` (a `pub const` alongside `PROTOCOL_VERSION`)
 > when Phase 3 starts.
+
+> `P0-T4` · 12 September 2026 · Claude (Sonnet 5)
+> Ported `docs/gpu-share-preview.html` into `apps/desktop/src` as Svelte 5 (runes) components
+> over a typed mock backend: `src/lib/types.ts` (shared shapes), `src/lib/mock/catalog.ts` and
+> `src/lib/mock/replies.ts` (ported verbatim from the prototype), and `src/lib/mock/backend.svelte.ts`
+> — the one file that owns the fake policy loop, `tick()`/`policy()`, timers, pairing and streaming,
+> exposed as two small interfaces (`HostBackend`, `ClientBackend`) via the exported singletons
+> `hostBackend` / `clientBackend`. That module is the swap point for Phase 2+: a real implementation
+> (Tauri commands on the host, the gatekeeper HTTP API on the client) should satisfy the same two
+> interfaces so `src/lib/components/*.svelte` and `src/App.svelte` don't change. Screens live under
+> `src/lib/components/` (one file per prototype screen, plus `Machine.svelte` for the shared
+> titlebar/tabs/taskbar chrome); CSS was ported into `src/app.css` largely verbatim, keeping the
+> `data-theme`/`prefers-color-scheme` split and breakpoints. `npm run build` and `npm run check`
+> (svelte-check + tsc) both pass clean, and `cargo check --workspace --all-targets` is unaffected.
+> Verified the golden path with a headless Chrome + puppeteer-core script (share toggle → pairing
+> with matching code → streamed reply → test-bench Blender triggers the paused banner on both
+> machines). Found and fixed one real bug while doing this: pushing a plain object into a Svelte 5
+> `$state` array proxy-wraps it at push time, so mutating a held reference to the *original* object
+> afterward (as the prototype's closure-based `msg.text += …` pattern would) never re-renders —
+> the streaming loop now re-reads `client.msgs[msgIndex]` on every tick instead. Deliberately
+> simplified: the client's taskbar clock reads the host's simulated `world.hour` directly (via
+> `hostBackend.world`) rather than through `ClientBackend`, since the prototype itself treats both
+> windows as one simulated environment with a single shared clock — worth revisiting when Phase 3
+> gives each machine its own real clock.
 
 ---
 
@@ -441,7 +479,7 @@ task that depended on it. If you resolve something not listed here, add a row.
 
 | # | Question | Status | Decision | Date |
 |---|---|---|---|---|
-| D1 | Project name | Open | — | — |
+| D1 | Project name | Decided | "GPU Share" — the working title is kept as the real name | 12 September 2026 |
 | D2 | Frontend framework (Svelte or React) | Decided | Svelte — smaller runtime, less boilerplate for a state-machine-heavy UI (share switch, policy states, streaming chat) | 12 September 2026 |
 | D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option | — |
 | D4 | Code-signing certificate: cost and timing | Open | — | — |

@@ -1,89 +1,86 @@
-<script>
-  import svelteLogo from './assets/svelte.svg'
-  import viteLogo from './assets/vite.svg'
-  import heroImg from './assets/hero.png'
-  import Counter from './lib/Counter.svelte'
+<script lang="ts">
+	import HostMachine from './lib/components/HostMachine.svelte';
+	import ClientMachine from './lib/components/ClientMachine.svelte';
+	import Link from './lib/components/Link.svelte';
+	import TestBench from './lib/components/TestBench.svelte';
+	import { hostBackend } from './lib/mock/backend.svelte';
+
+	let theme = $state<'light' | 'dark'>(
+		typeof window !== 'undefined' &&
+			window.matchMedia &&
+			window.matchMedia('(prefers-color-scheme: dark)').matches
+			? 'dark'
+			: 'light'
+	);
+
+	$effect(() => {
+		document.documentElement.dataset.theme = theme;
+	});
+
+	// Like the prototype, an OS-level scheme change always wins, even after a manual pick.
+	$effect(() => {
+		if (!window.matchMedia) return;
+		const mq = window.matchMedia('(prefers-color-scheme: dark)');
+		const handler = (e: MediaQueryListEvent) => {
+			theme = e.matches ? 'dark' : 'light';
+		};
+		mq.addEventListener('change', handler);
+		return () => mq.removeEventListener('change', handler);
+	});
+
+	function toggleTheme() {
+		theme = theme === 'dark' ? 'light' : 'dark';
+	}
+
+	function showTour() {
+		alert(
+			"Try it in this order:\n\n" +
+				"1. On Dara's laptop, press Set up sharing, then turn on Share my graphics card.\n" +
+				'2. On your PC, his laptop appears. Press Ask to connect.\n' +
+				'3. Back on his laptop, check the code and press Allow.\n' +
+				'4. Ask a question. The first one waits while the model loads onto his card.\n' +
+				"5. While it's answering, use the test bench to open Blender, or press He's using the laptop.\n\n" +
+				'Watch what happens to his graphics card memory, and what you see on your side.'
+		);
+	}
+
+	function startOver() {
+		hostBackend.reset();
+	}
 </script>
 
-<section id="center">
-  <div class="hero">
-    <img src={heroImg} class="base" width="170" height="179" alt="" />
-    <img src={svelteLogo} class="framework" alt="Svelte logo" />
-    <img src={viteLogo} class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p>
-  </div>
-  <Counter />
-</section>
+<header class="topbar">
+	<div class="brand">GPU<span>Share</span></div>
+	<div class="topnote">
+		Interactive preview. Nothing here is real yet, but everything behaves the way the finished app
+		will.
+	</div>
+	<div class="spacer"></div>
+	<button class="tbtn" onclick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
+	<button class="tbtn" onclick={showTour}>How to use this preview</button>
+	<button class="tbtn" onclick={startOver}>Start over</button>
+</header>
 
-<div class="ticks"></div>
+<main class="scene">
+	<div class="lede">
+		<h1>Two computers, one graphics card.</h1>
+		<p>
+			On the left is your friend's Windows machine with the RTX A2000. On the right is your Ubuntu
+			PC. Turn on sharing, connect the two, and chat. Use the test bench underneath to see what
+			happens when he needs his computer back.
+		</p>
+	</div>
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true">
-      <use href="/icons.svg#documentation-icon"></use>
-    </svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank" rel="noreferrer">
-          <img class="logo" src={viteLogo} alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://svelte.dev/" target="_blank" rel="noreferrer">
-          <img class="button-icon" src={svelteLogo} alt="" />
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true">
-      <use href="/icons.svg#social-icon"></use>
-    </svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li>
-        <a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#github-icon"></use>
-          </svg>
-          GitHub
-        </a>
-      </li>
-      <li>
-        <a href="https://chat.vite.dev/" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#discord-icon"></use>
-          </svg>
-          Discord
-        </a>
-      </li>
-      <li>
-        <a href="https://x.com/vite_js" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#x-icon"></use>
-          </svg>
-          X.com
-        </a>
-      </li>
-      <li>
-        <a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#bluesky-icon"></use>
-          </svg>
-          Bluesky
-        </a>
-      </li>
-    </ul>
-  </div>
-</section>
+	<div class="bench">
+		<HostMachine />
+		<Link />
+		<ClientMachine />
+	</div>
 
-<div class="ticks"></div>
-<section id="spacer"></section>
+	<TestBench />
+</main>
+
+<div class="foot">
+	Preview build 0.1 · The performance figures shown are estimates for an NVIDIA RTX A2000 8 GB and
+	still need to be measured on the real machine.
+</div>
