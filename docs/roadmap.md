@@ -121,9 +121,18 @@ which phases are real.
 | What exists | Where | State |
 |---|---|---|
 | Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.3, draft but detailed enough to build from |
-| Clickable Phase 1 prototype | [gpu-share-preview.html](gpu-share-preview.html) | **Build 0.1** — single self-contained HTML file, 1246 lines, vanilla JS. The spec describes build 0.2 (queue shared by several friends); that file is not in this repo yet, see the `P1-T9` note |
-| Shared protocol crate | `crates/protocol` | Announcement type, the 5-endpoint gatekeeper allowlist as data, catalog entry and VRAM estimate. 8 tests |
-| Desktop app scaffold | `apps/desktop` | Tauri 2 + Svelte 5 port of prototype build 0.1 over a typed mock backend (`src/lib/mock/backend.svelte.ts`) |
+| Clickable prototype | [gpu-share-preview.html](gpu-share-preview.html) | Build 0.2 (several friends, queue) |
+| Shared protocol crate | `crates/protocol` | Announcement, API and pairing types with golden fixtures, the 5-endpoint allowlist, VRAM estimate |
+| Identity and pinned TLS | `crates/netcore` | Per-install certificate, fingerprint pinning both ways, LAN interface choice and multicast |
+| Host (Share mode) | `crates/host` | Policy loop and OS signals, engine supervisor, gatekeeper, queue, pairing, usage counts, model library, first-run engine setup |
+| Client (Use mode) | `crates/client` | Discovery, gatekeeper client, chat history, pairing |
+| Desktop app | `apps/desktop` | Tauri 2 + Svelte 5: the real app over the crates, and the browser preview over a mock |
+| Release builds | `.github/workflows/release.yml` | Windows NSIS installer, Ubuntu `.deb` and AppImage |
+| Guides | [pilot.md](pilot.md), [releasing.md](releasing.md), [security-review.md](security-review.md) | For the pilot, releases, and the spec §7 review |
+
+The automated suites listed above (1–10) all exist; `scripts/e2e/run.sh` drives two real app
+instances end to end on one Linux machine. What is left is what only real machines can show:
+the manual checklist above, the pilot, and the project author's decisions (D3–D6, D9, D10).
 
 What the prototype actually simulates today: both machines side by side; the share switch; a
 policy loop (`policy()` / `tick()`) covering battery, schedule, named apps, GPU-heavy apps, idle
@@ -730,3 +739,4 @@ task that depended on it. If you resolve something not listed here, add a row.
 |---|---|
 | 12 September 2026 | Roadmap created from spec v0.2. Phase 1 prototype tasks marked done. |
 | 13 October 2026 | Spec updated to v0.3. Added `P1-T9`, `P1-T10`, `P2-T10` for what v0.3 introduced. Decisions D8 and D10 recorded, D9 added, recommendations noted on D3–D6. "Where the project stands today" corrected to mention the scaffold. Cloud-session setup added (`CLAUDE.md`, `scripts/cloud-setup.sh`). |
+| 13 October 2026 | Phases 2–7 built in one session (Claude Opus 5.5): real chat, discovery, pairing, limits, model library, installers. Remaining: manual checks on real hardware, `P1-T4`–`P1-T8`, `P5-T11`, `P6-T1` (hosting, D3), `P7-T6`/`P7-T7`/`P7-T9`. |
