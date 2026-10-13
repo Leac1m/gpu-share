@@ -27,6 +27,8 @@ pub struct SeenHost {
     pub address: SocketAddr,
     pub last_seen: Instant,
     pub models: Vec<RemoteModel>,
+    /// Polls in a row that got no answer.
+    pub fails: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -94,13 +96,32 @@ impl ClientRuntime {
         if self.is_paired(&info.id) {
             let _ = self.history.update_address(&info.id, &info.name, &address.to_string());
         }
+        if !protocol::compatible(&info.protocol) {
+            log::info!("{} speaks protocol {}, this build {}", info.name, info.protocol, protocol::PROTOCOL_VERSION);
+        }
         let models = st.hosts.get(&info.id).map(|h| h.models.clone()).unwrap_or_default();
-        st.hosts.insert(info.id.clone(), SeenHost { info, address, last_seen: Instant::now(), models });
+        st.hosts.insert(info.id.clone(), SeenHost { info, address, last_seen: Instant::now(), models, fails: 0 });
     }
 
     pub fn set_models(&self, host_id: &str, models: Vec<RemoteModel>) {
         if let Some(h) = self.state.lock().unwrap().hosts.get_mut(host_id) {
             h.models = models;
+        }
+    }
+
+    /// A poll got no answer. Two in a row (about ten seconds) and the host is gone: its owner
+    /// switched sharing off, or it left the network.
+    fn missed(&self, id: &str) {
+        let mut st = self.state.lock().unwrap();
+        let gone = match st.hosts.get_mut(id) {
+            Some(h) => {
+                h.fails += 1;
+                h.fails >= 2
+            }
+            None => false,
+        };
+        if gone {
+            st.hosts.remove(id);
         }
     }
 
@@ -284,7 +305,10 @@ impl ClientRuntime {
             let me = self.clone();
             async move {
                 let Ok(api) = me.api(&id, addr) else { return };
-                let Ok(info) = api.info().await else { return };
+                let Ok(info) = api.info().await else {
+                    me.missed(&id);
+                    return;
+                };
                 if info.id != id {
                     return;
                 }
@@ -354,13 +378,18 @@ impl ClientRuntime {
                     },
                     gpu: h.info.gpu.clone().unwrap_or_default(),
                     status: match h.info.status {
+                        None => "off",
+                        Some(_) if !protocol::compatible(&h.info.protocol) => "paused",
                         Some(ShareStatus::Available) => "available",
                         Some(ShareStatus::Busy) => "busy",
                         Some(ShareStatus::Paused) => "paused",
-                        None => "off",
                     }
                     .into(),
-                    reason: h.info.reason.clone().unwrap_or_default(),
+                    reason: if protocol::compatible(&h.info.protocol) {
+                        h.info.reason.clone().unwrap_or_default()
+                    } else {
+                        "Runs a different version of GPU Share. Update both computers to the same version.".into()
+                    },
                     busy_with_other: h.info.status == Some(ShareStatus::Busy) && !mine,
                     paired,
                     models: if paired { h.models.clone() } else { vec![] },

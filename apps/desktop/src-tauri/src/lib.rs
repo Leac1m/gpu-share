@@ -55,6 +55,7 @@ pub fn run() {
             commands::client_view,
             commands::client_ask_connect,
             commands::client_add_by_ip,
+            commands::client_rescan,
             commands::client_open_chat,
             commands::client_send,
             commands::client_stop,

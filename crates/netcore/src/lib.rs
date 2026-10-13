@@ -5,6 +5,7 @@
 //! side checks the other's certificate by fingerprint ([`tls`]).
 
 pub mod identity;
+pub mod lan;
 pub mod tls;
 
 pub use identity::Identity;

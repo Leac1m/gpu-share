@@ -186,6 +186,8 @@ export interface ClientBackend {
 	askConnect(hostId: string): void;
 	/** Resolves to an error message, or null when the host was found. */
 	addByIp(address: string): Promise<string | null>;
+	/** Look around the network again (subnet scan). */
+	rescan(): void;
 	openChat(hostId: string): void;
 	sendMessage(text: string): void;
 	/** Stop the answer, or cancel a question still waiting in line. */

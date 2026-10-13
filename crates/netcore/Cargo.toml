@@ -10,8 +10,10 @@ protocol = { workspace = true }
 rustls = { workspace = true }
 rcgen = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+socket2 = { version = "0.6", features = ["all"] }
+if-addrs = "0.15"
 
 [dev-dependencies]
-tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tempfile = { workspace = true }

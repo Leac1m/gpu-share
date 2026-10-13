@@ -92,3 +92,32 @@ async fn a_paused_host_gives_a_note_not_an_error() {
         "Your question wasn't answered. They're using their computer. Send it again when the host is back."
     );
 }
+
+#[tokio::test]
+async fn add_by_ip_finds_the_host_and_checks_its_identity() {
+    let host = start_host(&[]).await;
+    let rt = ClientRuntime::new(netcore::Identity::generate().unwrap(), History::in_memory().unwrap(), "Me".into());
+    let name = rt.add_by_ip(&host.addr.to_string()).await.unwrap();
+    assert_eq!(name, "Test host");
+    assert_eq!(rt.hosts()[0].info.id, host.core.identity.fingerprint());
+    assert!(!rt.view().hosts[0].paired);
+
+    let err = rt.add_by_ip("127.0.0.1:1").await.unwrap_err();
+    assert!(err.contains("Nothing answered"), "{err}");
+    let err = rt.add_by_ip("not an address").await.unwrap_err();
+    assert!(err.contains("doesn't look like an address"), "{err}");
+}
+
+#[tokio::test]
+async fn a_host_that_switches_off_disappears_after_two_polls() {
+    let mut host = start_host(&[]).await;
+    let rt = ClientRuntime::new(netcore::Identity::generate().unwrap(), History::in_memory().unwrap(), "Me".into());
+    rt.add_by_ip(&host.addr.to_string()).await.unwrap();
+    rt.refresh().await;
+    assert_eq!(rt.hosts().len(), 1);
+    host.gk.take().unwrap().stop().await; // sharing off: the port closes
+    rt.refresh().await;
+    assert_eq!(rt.hosts().len(), 1, "one missed poll is forgiven");
+    rt.refresh().await;
+    assert!(rt.hosts().is_empty(), "two and it's gone");
+}

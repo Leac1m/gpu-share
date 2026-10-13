@@ -137,6 +137,11 @@ pub async fn client_add_by_ip(s: S<'_>, address: String) -> R<Option<String>> {
 }
 
 #[tauri::command]
+pub fn client_rescan(s: S) {
+    s.discovery.rescan();
+}
+
+#[tauri::command]
 pub fn client_open_chat(s: S, host_id: String) {
     s.client.open_chat(&host_id);
 }

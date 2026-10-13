@@ -20,3 +20,20 @@ pub const PROTOCOL_VERSION: &str = "1.0";
 
 /// TCP port the gatekeeper's HTTPS server listens on (roadmap D7).
 pub const GATEKEEPER_PORT: u16 = 50123;
+
+/// Whether an install speaking `other` can talk to this one: same major version.
+pub fn compatible(other: &str) -> bool {
+    let major = |v: &str| v.split('.').next().map(str::to_string);
+    major(other).is_some() && major(other) == major(PROTOCOL_VERSION)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn same_major_version_is_compatible() {
+        assert!(super::compatible("1.0"));
+        assert!(super::compatible("1.7"));
+        assert!(!super::compatible("2.0"));
+        assert!(!super::compatible(""));
+    }
+}

@@ -50,7 +50,10 @@
 			{c.networkHint ||
 				"Can't find a computer you expect? It may be on a different Wi-Fi, or the router may be blocking devices from seeing each other."}
 		</div>
-		{@render addIp()}
+		<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+			<button class="btn sm" style="margin-top:12px" onclick={() => clientBackend.rescan()}>Look again</button>
+			{@render addIp()}
+		</div>
 	</div>
 {:else}
 	<h4 class="hd">Computers on your network</h4>

@@ -119,6 +119,7 @@ export const clientBackend: ClientBackend = {
 	},
 	askConnect: (hostId) => call('client_ask_connect', { hostId }),
 	addByIp: (address) => invoke<string | null>('client_add_by_ip', { address }),
+	rescan: () => call('client_rescan'),
 	openChat: (hostId) => call('client_open_chat', { hostId }),
 	sendMessage: (text) => call('client_send', { text }),
 	stop: () => call('client_stop'),

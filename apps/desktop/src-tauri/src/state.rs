@@ -5,18 +5,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use client::discovery::Discovery;
 use client::history::History;
 use client::runtime::ClientRuntime;
 use host::core::{bundled_catalog, HostConfig, HostCore};
 use host::engine::EngineConfig;
 use host::runtime::{HostRuntime, SwitchOnly};
-use protocol::discovery::Os;
+use protocol::discovery::{Announcement, Mode, Os};
 use tauri::Manager;
 
 pub struct AppState {
     /// `None` on machines that can't share (no engine available).
     pub host: Option<Arc<HostRuntime>>,
     pub client: Arc<ClientRuntime>,
+    pub discovery: Arc<Discovery>,
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -72,8 +74,25 @@ impl AppState {
         std::fs::create_dir_all(&data_dir)?;
         let name = device_name();
         let identity = netcore::Identity::load_or_create(&data_dir)?;
+        let os = if cfg!(windows) { Os::Windows } else { Os::Linux };
+        let engine = engine_binary(app);
+        let me = Announcement {
+            protocol: protocol::PROTOCOL_VERSION.into(),
+            id: identity.fingerprint().into(),
+            name: name.clone(),
+            os,
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            modes: if engine.is_some() { vec![Mode::Share, Mode::Use] } else { vec![Mode::Use] },
+            status: None,
+            port: protocol::GATEKEEPER_PORT,
+            announce: true,
+            reason: None,
+            gpu: None,
+        };
 
         let client = ClientRuntime::new(identity, History::open(&data_dir.join("client.db"))?, name.clone());
+        let discovery = Discovery::new(client.clone(), me);
+        tauri::async_runtime::spawn(discovery.clone().run());
         {
             let client = client.clone();
             tauri::async_runtime::spawn(async move {
@@ -85,7 +104,7 @@ impl AppState {
             });
         }
 
-        let host = match engine_binary(app) {
+        let host = match engine {
             None => {
                 log::info!("no llama-server found; Share mode is unavailable on this computer");
                 None
@@ -98,7 +117,7 @@ impl AppState {
                     data_dir: data_dir.clone(),
                     models_dir,
                     name,
-                    os: if cfg!(windows) { Os::Windows } else { Os::Linux },
+                    os,
                     app_version: env!("CARGO_PKG_VERSION").into(),
                     card: None,
                     engine: EngineConfig {
@@ -114,9 +133,10 @@ impl AppState {
                 })?;
                 let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), Box::new(SwitchOnly));
                 tauri::async_runtime::spawn(rt.clone().run());
+                tauri::async_runtime::spawn(host::announce::run(rt.core.clone()));
                 Some(rt)
             }
         };
-        Ok(Arc::new(Self { host, client }))
+        Ok(Arc::new(Self { host, client, discovery }))
     }
 }

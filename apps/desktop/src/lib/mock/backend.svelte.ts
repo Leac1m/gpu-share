@@ -597,6 +597,7 @@ export const clientBackend: ClientBackend = {
 	async addByIp() {
 		return 'In the finished app this connects to an address like 192.168.1.42, for networks where computers cannot find each other automatically.';
 	},
+	rescan() {},
 	openChat(hostId) {
 		client.chatHost = hostId;
 	},

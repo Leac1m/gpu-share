@@ -86,7 +86,7 @@ on real machines.
 - [ ] GPU performance-counter pause fires when another app grabs the GPU (`P5-T4`)
 - [ ] NVML temperature hysteresis on the real A2000 — no flapping (`P5-T5`)
 - [ ] Battery / plugged-in detection (`P5-T6`)
-- [ ] Real multicast discovery across the actual home router, including the client-isolation case (`P3-T2`, `P3-T7`)
+- [ ] Real multicast discovery across the actual home router, including the client-isolation case (`P3-T2`, `P3-T7`). If multicast fails there, check whether `GPU_SHARE_IFACE` with the Wi-Fi adapter's name fixes it
 - [ ] Windows network-profile (Private vs Public) first-run check (`P7-T2`)
 - [ ] Installer + firewall rule on a clean Windows machine (`P7-T1`)
 - [ ] Tray icon on both platforms (`P7-T5`)
@@ -102,7 +102,7 @@ on real machines.
 | [0](#phase-0--foundations) | Foundations and decisions | 6 / 6 | Done |
 | [1](#phase-1--clickable-prototype) | Clickable prototype | 5 / 10 | Build 0.2 in the repo and the Svelte app; feedback not yet gathered |
 | [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done (GUI pairing arrives with Phase 4) |
-| [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
+| [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Built and tested on one machine; the real home network check is still to do |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
 | [6](#phase-6--model-library) | Model library | 0 / 8 | Not started |
@@ -408,25 +408,49 @@ Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU ne
 
 LocalSend-style announcement on the LAN, with fallbacks for routers that misbehave.
 
-- [ ] **P3-T1** — Announcement message type in the shared `protocol` crate, carrying a protocol
+- [x] **P3-T1** — Announcement message type in the shared `protocol` crate, carrying a protocol
       version so mismatched installs can tell. *(spec §6.6, §6.10)*
-- [ ] **P3-T2** — UDP multicast announce and listen: on startup, on every status change, and a
+- [x] **P3-T2** — UDP multicast announce and listen: on startup, on every status change, and a
       ~15 s heartbeat. Clients drop a device after three missed heartbeats.
-- [ ] **P3-T3** — Reply path: `POST /api/register` over HTTPS, falling back to a multicast reply
+- [x] **P3-T3** — Reply path: `POST /api/register` over HTTPS, falling back to a multicast reply
       with `"announce": false` if HTTPS fails.
-- [ ] **P3-T4** — Subnet scan fallback: `GET /api/info` across the local /24.
-- [ ] **P3-T5** — "Add by IP address" manual option.
-- [ ] **P3-T6** — On Ubuntu, pick the real LAN interface and ignore virtual ones (Docker bridges,
+- [x] **P3-T4** — Subnet scan fallback: `GET /api/info` across the local /24.
+- [x] **P3-T5** — "Add by IP address" manual option.
+- [x] **P3-T6** — On Ubuntu, pick the real LAN interface and ignore virtual ones (Docker bridges,
       VPNs). If ufw is on, tell the user which port to allow.
-- [ ] **P3-T7** — Detect client isolation / blocked multicast (guest Wi-Fi, some mesh routers) and
+- [x] **P3-T7** — Detect client isolation / blocked multicast (guest Wi-Fi, some mesh routers) and
       explain it in plain language rather than failing silently.
-- [ ] **P3-T8** — Verify that with the switch off the host announces nothing and is invisible.
+- [x] **P3-T8** — Verify that with the switch off the host announces nothing and is invisible.
 
 **Done when:** devices appear and disappear correctly on the real home network.
 
 ### Notes — Phase 3
 
-_None yet._
+> `P3-T1`…`P3-T8` · 2026-10-13 · Claude (Opus 5.5)
+> How discovery works, in case the real network disagrees (the "done when" needs the actual home
+> router, which no cloud session has):
+> * Hosts multicast to `239.192.152.143:53737` (D7) from `crates/host/src/announce.rs` only while
+>   sharing is on: at once on any status change, then every 15 s. Clients say hello once a minute
+>   (`announce: true`) and hosts answer it straight back by unicast UDP with `announce: false`;
+>   clients answer a newly heard host with `POST /api/register` and, if that fails, say the host can
+>   be seen but not reached (usually a Windows network set to Public).
+> * Clients also poll every listed host and every paired host's last address over HTTPS every 5 s.
+>   A host whose port stops answering twice in a row disappears (about 10 s after its owner switches
+>   off); one that goes quiet otherwise disappears after three missed heartbeats (45 s).
+> * Subnet scan (`crates/client/src/discovery.rs`): 8 s after start if nothing has turned up, or on
+>   "Look again": TCP connect to port 50123 on each address of the local /24, 64 at a time, 800 ms
+>   timeout. Addresses that accept are checked with `/api/info` over TLS. Addresses that answer at
+>   all (even with a refusal) count as "devices that can see us", except `.1` and `.254` (usually
+>   the router). Zero is the client-isolation hint.
+> * Interface choice (`netcore::lan::pick_interfaces`) keeps private IPv4 addresses and drops
+>   anything named like a container bridge, VPN or VM network. `GPU_SHARE_IFACE=eth0` (comma-
+>   separated names) overrides it; the cloud VM needed that because its only address is
+>   192.0.2.2, which isn't a private range.
+> * Installs with a different protocol *major* version still show up, as paused with "Runs a
+>   different version of GPU Share".
+> * Tested: multicast between the announcer and the client listener on this VM's eth0, off-host
+>   invisible (`tests/discovery_lan.rs`), the /24 scan over 127.0.0.0/24, Add by IP, and
+>   disappearing after a switch-off (`tests/client_runtime.rs`).
 
 ---
 

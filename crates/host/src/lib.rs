@@ -1,5 +1,6 @@
 //! Share mode (spec §6.2–6.5, §6.8): everything a host runs.
 
+pub mod announce;
 pub mod clamp;
 pub mod core;
 pub mod engine;
