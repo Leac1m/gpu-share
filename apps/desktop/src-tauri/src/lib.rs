@@ -58,6 +58,7 @@ pub fn run() {
             commands::client_rescan,
             commands::client_open_chat,
             commands::client_send,
+            commands::client_retry,
             commands::client_stop,
             commands::client_set_model,
             commands::client_forget,

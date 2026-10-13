@@ -124,6 +124,7 @@ export const clientBackend: ClientBackend = {
 	openChat: (hostId) => call('client_open_chat', { hostId }),
 	sendMessage: (text) => call('client_send', { text }),
 	stop: () => call('client_stop'),
+	retry: () => call('client_retry'),
 	setModel(id) {
 		client.model = id;
 		call('client_set_model', { id });

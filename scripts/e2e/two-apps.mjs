@@ -3,6 +3,7 @@
 // real model. Run through scripts/e2e/run.sh, which starts Xvfb, the UI dev server and two
 // tauri-drivers.
 
+import { writeFileSync } from 'node:fs';
 import { btn, Session } from './wd.mjs';
 
 const APP = process.env.APP;
@@ -57,7 +58,20 @@ try {
 	if (ownerText.includes('capital of France')) throw new Error('the owner can see the question!');
 	log('owner: 1 question counted, question text not shown');
 
-	// --- the owner pauses by switching off: the friend sees the host disappear
+	// --- a pause rule: Blender opens on the owner's computer (via the dev world file)
+	writeFileSync(`${OUT}/world.json`, JSON.stringify({ running_apps: ['Blender'] }));
+	await owner.wait('//div[contains(@class,"banner warn") and contains(., "Blender is open")]', 15000);
+	log('owner: paused, "Blender is open"');
+	const pausedBanner = await friend.text('//div[contains(@class,"msgs")]//div[contains(@class,"banner warn")]', 20000);
+	log('friend sees:', JSON.stringify(pausedBanner));
+	if (pausedBanner.includes('Blender')) throw new Error('the friend was told which program is open!');
+	if (!pausedBanner.includes("They're using their computer")) throw new Error('no general reason shown');
+	await friend.screenshot(`${OUT}/e2e-friend-paused.png`);
+	writeFileSync(`${OUT}/world.json`, JSON.stringify({}));
+	await friend.wait('//div[contains(@class,"chathead")]//span[contains(@class,"chip") and contains(., "Ready")]', 20000);
+	log('friend: Ready again once Blender closed');
+
+	// --- the owner switches sharing off: the friend sees the host disappear
 	await owner.click('//div[contains(@class,"bigswitch")]//button[@role="switch"]');
 	await friend.click('//div[@role="tablist"]//button[contains(., "Computers")]');
 	await friend.wait('//div[contains(@class,"big") and contains(., "Looking for computers")]', 30000);

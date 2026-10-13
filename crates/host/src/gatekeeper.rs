@@ -308,7 +308,16 @@ async fn run_turn(core: Arc<HostCore>, mut ticket: Ticket, spec: crate::engine::
         }
     }
 
-    // 2. the right model on the card (stopping another model's process if needed)
+    // 2. the right model on the card (stopping another model's process if needed), if it fits
+    if core.supervisor.status().loaded.as_deref() != Some(spec.id.as_str()) {
+        if let Some(short) = core.vram_shortfall(&spec) {
+            log::info!("not loading {}: {short:.1} GB short", spec.id);
+            core.toast("Not enough graphics card memory", "Something else is using the card, so the model wasn't loaded.");
+            let reason = "There isn't enough free graphics card memory on the host right now".to_string();
+            let _ = tx.send(Out::Queue(QueueEvent::Stopped { reason })).await;
+            return;
+        }
+    }
     ticket.set_phase(JobPhase::Loading);
     let (ptx, mut prx) = watch::channel(0u8);
     let handle = {

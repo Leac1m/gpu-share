@@ -209,3 +209,18 @@ async fn non_streaming_clients_get_one_completion() {
         .unwrap();
     assert_eq!(v["choices"][0]["message"]["content"].as_str().unwrap().trim(), "Echo: plain");
 }
+
+#[tokio::test]
+async fn the_owners_view_shows_signals_without_deadlocking() {
+    let host = start_host(&[]).await;
+    host.core.set_signals(host::policy::Signals { gpu_temp_c: Some(61.0), running_apps: vec!["Blender".into()], ..Default::default() });
+    let v = tokio::time::timeout(Duration::from_secs(2), tokio::task::spawn_blocking({
+        let core = host.core.clone();
+        move || core.view()
+    }))
+    .await
+    .expect("view() returned")
+    .unwrap();
+    assert_eq!(v.temp, Some(61.0));
+    assert_eq!(v.running_apps, vec!["Blender"]);
+}

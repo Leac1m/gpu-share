@@ -194,6 +194,8 @@ export interface ClientBackend {
 	sendMessage(text: string): void;
 	/** Stop the answer, or cancel a question still waiting in line. */
 	stop(): void;
+	/** Ask the last question again (after a pause cut it short or turned it away). */
+	retry(): void;
 	setModel(id: string): void;
 	forget(hostId: string): void;
 }

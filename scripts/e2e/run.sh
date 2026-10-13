@@ -24,7 +24,8 @@ export DISPLAY=:99
 sleep 2
 
 # the owner shares on the default port; the friend never switches sharing on
-GPU_SHARE_DATA_DIR="$OUT/owner" GPU_SHARE_NAME="E2E Owner" GPU_SHARE_IFACE="$IFACE" \
+echo '{}' > "$OUT/world.json"
+GPU_SHARE_DATA_DIR="$OUT/owner" GPU_SHARE_NAME="E2E Owner" GPU_SHARE_IFACE="$IFACE" GPU_SHARE_WORLD_FILE="$OUT/world.json" \
   tauri-driver --port 4444 --native-port 4445 >"$OUT/owner-driver.log" 2>&1 & pids+=($!)
 GPU_SHARE_DATA_DIR="$OUT/friend" GPU_SHARE_NAME="E2E Friend" GPU_SHARE_IFACE="$IFACE" GPU_SHARE_PORT=50124 \
   tauri-driver --port 4454 --native-port 4455 >"$OUT/friend-driver.log" 2>&1 & pids+=($!)

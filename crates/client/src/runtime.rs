@@ -316,6 +316,15 @@ impl ClientRuntime {
         }
     }
 
+    /// "Ask again" after a pause cut a reply short or turned the question away (`P5-T10`).
+    pub fn retry(self: &Arc<Self>) {
+        let Some(host_id) = self.state.lock().unwrap().chat_host.clone() else { return };
+        let last_user = self.history.recent(&host_id, 50).unwrap_or_default().into_iter().rev().find(|m| m.role == "user");
+        if let Some(m) = last_user {
+            self.send(&m.text);
+        }
+    }
+
     /// Stop the answer, or cancel a question still in line. Dropping the stream tells the host.
     pub fn stop(&self) {
         let (task, host_id, was_streaming) = {

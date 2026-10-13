@@ -16,6 +16,10 @@
 	});
 
 	const blocked = $derived(!host || host.status === 'paused' || host.status === 'off');
+	// offer "Ask again" when the last thing in the chat is a note about a cut or refused question
+	const canRetry = $derived(
+		!c.turn && !blocked && c.msgs.at(-1)?.role === 'note' && /wasn't answered|stopped part way/.test(c.msgs.at(-1)?.text ?? '')
+	);
 	const waitingForMe = $derived(!!c.turn);
 
 	let text = $state('');
@@ -92,6 +96,9 @@
 					<div class="msg ai"><Markdown text={m.text} />{#if m.streaming}<span class="caret"></span>{/if}</div>
 				{/if}
 			{/each}
+			{#if canRetry}
+				<div><button class="btn sm" onclick={() => clientBackend.retry()}>Ask again</button></div>
+			{/if}
 			{#if c.turn?.phase === 'queued'}
 				{@const ahead = c.turn.position - 1}
 				<div class="loadbar">

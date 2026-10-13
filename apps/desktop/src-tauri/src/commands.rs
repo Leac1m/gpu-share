@@ -154,6 +154,12 @@ pub async fn client_send(s: S<'_>, text: String) -> R {
 }
 
 #[tauri::command]
+pub async fn client_retry(s: S<'_>) -> R {
+    s.client.retry();
+    Ok(())
+}
+
+#[tauri::command]
 pub fn client_stop(s: S) {
     s.client.stop();
 }

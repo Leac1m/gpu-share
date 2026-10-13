@@ -10,7 +10,8 @@ use client::history::History;
 use client::runtime::ClientRuntime;
 use host::core::{bundled_catalog, HostConfig, HostCore};
 use host::engine::EngineConfig;
-use host::runtime::{HostRuntime, SwitchOnly};
+use host::runtime::HostRuntime;
+use host::world::{FileWorld, SystemWorld, World};
 use protocol::discovery::{Announcement, Mode, Os};
 use tauri::Manager;
 
@@ -110,6 +111,12 @@ impl AppState {
                 None
             }
             Some(binary) => {
+                // the real machine, or (for development) signals read from a JSON file
+                let world: Arc<dyn World> = match env_path("GPU_SHARE_WORLD_FILE") {
+                    Some(path) => Arc::new(FileWorld { path }),
+                    None => Arc::new(SystemWorld::new()),
+                };
+                let card = world.card().map(|(name, vram_gb)| host::core::Card { name, vram_gb });
                 let models_dir = env_path("GPU_SHARE_MODELS_DIR").unwrap_or(host::core::default_models_dir(&data_dir));
                 link_dev_model(&models_dir);
                 let port: u16 = std::env::var("GPU_SHARE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(protocol::GATEKEEPER_PORT);
@@ -120,7 +127,7 @@ impl AppState {
                     os,
                     app_version: env!("CARGO_PKG_VERSION").into(),
                     port,
-                    card: None,
+                    card,
                     engine: EngineConfig {
                         binary,
                         // the Windows host runs the CUDA build: every layer on the GPU
@@ -132,7 +139,7 @@ impl AppState {
                     catalog: bundled_catalog(),
                     dev_models: cfg!(debug_assertions) || std::env::var("GPU_SHARE_DEV").is_ok(),
                 })?;
-                let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), Box::new(SwitchOnly));
+                let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), world);
                 tauri::async_runtime::spawn(rt.clone().run());
                 tauri::async_runtime::spawn(host::announce::run(rt.core.clone()));
                 Some(rt)

@@ -100,6 +100,9 @@ pub struct HostCore {
     pub store: Store,
     pub supervisor: Supervisor,
     pub pairing: crate::pairing::Pairing,
+    /// The latest reading of the computer's state, for the owner's screen.
+    signals: Mutex<crate::policy::Signals>,
+    world: Mutex<Option<Arc<dyn crate::world::World>>>,
     inner: Mutex<Inner>,
     settings_path: PathBuf,
     /// For the gatekeeper's engine requests: no proxy, no timeout (replies stream for a while).
@@ -145,6 +148,8 @@ impl HostCore {
         Ok(Arc::new(Self {
             supervisor: Supervisor::new(cfg.engine.clone()),
             pairing: Default::default(),
+            signals: Mutex::new(Default::default()),
+            world: Mutex::new(None),
             cfg,
             identity,
             store,
@@ -224,6 +229,39 @@ impl HostCore {
 
     pub fn limits(&self) -> Limits {
         Limits { max_reply: self.settings().max_reply }
+    }
+
+    // ------------------------------------------------------------------ signals
+
+    pub fn attach_world(&self, world: Arc<dyn crate::world::World>) {
+        *self.world.lock().unwrap() = Some(world);
+    }
+
+    pub fn world(&self) -> Option<Arc<dyn crate::world::World>> {
+        self.world.lock().unwrap().clone()
+    }
+
+    pub fn set_signals(&self, s: crate::policy::Signals) {
+        *self.signals.lock().unwrap() = s;
+    }
+
+    /// `P5-T5`: is there room on the card for this model right now? `None` when the card can't
+    /// be asked (no NVML), in which case only the budget applies. The memory of a model that is
+    /// loaded now counts as free, since it is stopped before the new one starts.
+    pub fn vram_shortfall(&self, spec: &ModelSpec) -> Option<f64> {
+        let free = self.world()?.free_vram_gb()?;
+        let ctx = spec.ctx;
+        let entry = self.cfg.catalog.iter().find(|e| e.id == spec.id)?;
+        let need = Self::vram_gb(entry, ctx);
+        let released = self
+            .supervisor
+            .status()
+            .loaded
+            .and_then(|id| self.cfg.catalog.iter().find(|e| e.id == id))
+            .map(|e| Self::vram_gb(e, ctx))
+            .unwrap_or(0.0);
+        let short = need - (free + released);
+        (short > 0.0).then_some(short)
     }
 
     // ------------------------------------------------------------------ the gate
@@ -401,6 +439,14 @@ impl HostCore {
             .or_else(|| loaded_gb(&engine.loading).map(|g| g * engine.load_pct as f64 / 100.0))
             .unwrap_or(0.0);
 
+        // read these before taking `inner`: a guard created inside the struct literal below would
+        // live until the end of it, and locking the same mutex twice there deadlocks
+        let (temp, running_apps) = {
+            let sig = self.signals.lock().unwrap();
+            (sig.gpu_temp_c, sig.running_apps.clone())
+        };
+        let pending = self.pairing.pending().map(|p| ViewPending { id: p.device, name: p.name, code: p.code });
+
         let mut inner = self.inner.lock().unwrap();
         inner.toasts.retain(|t| t.3.elapsed() < Duration::from_secs(TOAST_SECS));
         let (state, reason, client_reason, countdown) = match &inner.gate {
@@ -425,7 +471,7 @@ impl HostCore {
             loading: engine.loading.clone(),
             load_pct: engine.load_pct,
             vram_used_gb: vram_used,
-            temp: None,
+            temp,
             job,
             queue: inner.line.waiting_devices(),
             paired: devices.iter().map(|d| ViewDevice { id: d.id.clone(), name: d.name.clone() }).collect(),
@@ -443,7 +489,7 @@ impl HostCore {
                     )
                 })
                 .collect(),
-            pending: self.pairing.pending().map(|p| ViewPending { id: p.device, name: p.name, code: p.code }),
+            pending,
             catalog: catalog.iter().map(ViewModel::from_entry).collect(),
             installed,
             downloads: Default::default(),
@@ -452,7 +498,7 @@ impl HostCore {
                 .iter()
                 .map(|t| ViewToast { id: format!("t{}", t.0), title: t.1.clone(), body: t.2.clone() })
                 .collect(),
-            running_apps: vec![],
+            running_apps,
             settings,
         }
     }

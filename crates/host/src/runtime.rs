@@ -1,46 +1,39 @@
-//! The host's background loop: turns the sharing switch and the policy loop's decision into a
-//! running (or closed) gatekeeper, notices engine crashes, and frees the card when idle.
+//! The host's background loop (`P5-T1`): every second it reads the computer's state, runs the
+//! policy, and turns the decision into a running (or closed) gatekeeper. It also notices engine
+//! crashes, frees the card when idle or over budget, and keeps the PC awake while serving.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::Mutex;
-
+use crate::awake::KeepAwake;
 use crate::core::{Gate, HostCore, PAUSE_GRACE};
 use crate::gatekeeper::Gatekeeper;
-
-/// Decides the gate from the switch and whatever signals are available. Phase 5 replaces the
-/// body with the real policy loop.
-pub trait Policy: Send + Sync + 'static {
-    fn decide(&self, core: &HostCore) -> Gate;
-}
-
-/// Open whenever sharing is on.
-pub struct SwitchOnly;
-
-impl Policy for SwitchOnly {
-    fn decide(&self, core: &HostCore) -> Gate {
-        if core.sharing() {
-            Gate::Open
-        } else {
-            Gate::Off
-        }
-    }
-}
+use crate::policy::{self, PolicyState};
+use crate::world::World;
 
 pub const TICK: Duration = Duration::from_secs(1);
 
 pub struct HostRuntime {
     pub core: Arc<HostCore>,
     bind: SocketAddr,
-    gatekeeper: Mutex<Option<Gatekeeper>>,
-    policy: Box<dyn Policy>,
+    gatekeeper: tokio::sync::Mutex<Option<Gatekeeper>>,
+    world: Arc<dyn World>,
+    policy: Mutex<PolicyState>,
+    awake: KeepAwake,
 }
 
 impl HostRuntime {
-    pub fn new(core: Arc<HostCore>, bind: SocketAddr, policy: Box<dyn Policy>) -> Arc<Self> {
-        Arc::new(Self { core, bind, gatekeeper: Mutex::new(None), policy })
+    pub fn new(core: Arc<HostCore>, bind: SocketAddr, world: Arc<dyn World>) -> Arc<Self> {
+        core.attach_world(world.clone());
+        Arc::new(Self {
+            core,
+            bind,
+            gatekeeper: tokio::sync::Mutex::new(None),
+            world,
+            policy: Mutex::new(PolicyState::default()),
+            awake: KeepAwake::new(),
+        })
     }
 
     /// Runs the loop forever. Spawn it.
@@ -52,17 +45,25 @@ impl HostRuntime {
     }
 
     pub async fn tick(&self) {
-        let gate = self.policy.decide(&self.core);
-        let off = gate == Gate::Off;
-        let paused_now = matches!(gate, Gate::Paused { .. }) && !matches!(self.core.gate(), Gate::Paused { .. });
-        if let Gate::Paused { owner, .. } = &gate {
-            if paused_now {
+        // 1. read the computer (process lists and counters can take a few ms: off the async threads)
+        if let Some(pid) = self.core.supervisor.pid().await {
+            self.world.set_own_pids(vec![pid]);
+        }
+        let world = self.world.clone();
+        let signals = tokio::task::spawn_blocking(move || world.sample()).await.unwrap_or_default();
+        let gate = policy::decide(&self.core.settings(), &signals, &mut self.policy.lock().unwrap());
+        self.core.set_signals(signals);
+
+        // 2. apply the decision
+        if let Gate::Paused { owner, countdown: false, .. } = &gate {
+            if !matches!(self.core.gate(), Gate::Paused { .. }) {
                 self.core.toast("Sharing paused", format!("{owner}. Your graphics card is free again."));
             }
         }
+        let off = gate == Gate::Off;
         let closed = self.core.set_gate(gate.clone());
 
-        // the port is open exactly while sharing is on (paused hosts still say they're paused)
+        // the port is open exactly while sharing is on (a paused host still answers "paused")
         let mut gk = self.gatekeeper.lock().await;
         if off {
             if let Some(g) = gk.take() {
@@ -73,17 +74,14 @@ impl HostRuntime {
                 Ok(g) => *gk = Some(g),
                 Err(e) => {
                     log::error!("gatekeeper could not start on {}: {e}", self.bind);
-                    self.core.toast(
-                        "Sharing couldn't start",
-                        format!("Port {} is in use by another program.", self.bind.port()),
-                    );
+                    self.core.toast("Sharing couldn't start", format!("Port {} is in use by another program.", self.bind.port()));
                     self.core.set_sharing(false);
                 }
             }
         }
         drop(gk);
 
-        // a pause or switch-off frees the card once the running reply has had its grace
+        // 3. a pause or switch-off frees the card once the running reply has had its grace
         if closed {
             let core = self.core.clone();
             tokio::spawn(async move {
@@ -94,19 +92,38 @@ impl HostRuntime {
             });
         }
 
+        // 4. engine health, idle, budget
         if self.core.supervisor.check().await {
             self.core.toast("The model stopped", "It will start again with the next question.");
         }
         if let Some(err) = self.core.supervisor.take_error() {
             log::warn!("engine: {err}");
         }
-
-        // free the card after a quiet spell (spec §6.4)
-        let idle_limit = Duration::from_secs(self.core.settings().idle_free_min as u64 * 60);
-        if self.core.supervisor.status().loaded.is_some() && self.core.idle_for() > idle_limit {
+        let settings = self.core.settings();
+        let loaded = self.core.supervisor.status().loaded;
+        if loaded.is_some() && self.core.idle_for() > Duration::from_secs(settings.idle_free_min as u64 * 60) {
             self.core.supervisor.stop().await;
             self.core.toast("Graphics card freed", "No one has used it for a while, so the model was unloaded.");
+        } else if let Some(id) = &loaded {
+            let over = self
+                .core
+                .catalog()
+                .iter()
+                .find(|e| &e.id == id)
+                .is_some_and(|e| HostCore::vram_gb(e, settings.ctx) > settings.budget);
+            if over && !self.core.busy() {
+                self.core.supervisor.stop().await;
+                self.core.toast("Model unloaded", "It needs more memory than your limit allows.");
+            }
         }
+
+        // 5. keep the PC awake only while actually serving (P5-T9)
+        let serving = self.core.gate() == Gate::Open && (self.core.busy() || self.core.supervisor.status().loaded.is_some());
+        self.awake.set(serving);
+    }
+
+    pub fn keeping_awake(&self) -> bool {
+        self.awake.is_on()
     }
 
     pub async fn shutdown(&self) {
@@ -114,5 +131,6 @@ impl HostRuntime {
             g.stop().await;
         }
         self.core.supervisor.stop().await;
+        self.awake.set(false);
     }
 }

@@ -83,9 +83,10 @@ on real machines.
 
 - [ ] Windows idle timer and away-countdown feel right to the owner (`P5-T2`)
 - [ ] Named-app pause list actually catches the owner's creative apps (`P5-T3`)
-- [ ] GPU performance-counter pause fires when another app grabs the GPU (`P5-T4`)
+- [ ] GPU performance-counter pause fires when another app grabs the GPU, and not for a browser playing video (`P5-T4`, threshold in `world.rs`)
 - [ ] NVML temperature hysteresis on the real A2000 — no flapping (`P5-T5`)
 - [ ] Battery / plugged-in detection (`P5-T6`)
+- [ ] The PC doesn't sleep while a friend's question is being answered, and does sleep again once sharing is idle (`P5-T9`)
 - [ ] Real multicast discovery across the actual home router, including the client-isolation case (`P3-T2`, `P3-T7`). If multicast fails there, check whether `GPU_SHARE_IFACE` with the Wi-Fi adapter's name fixes it
 - [ ] Windows network-profile (Private vs Public) first-run check (`P7-T2`)
 - [ ] Installer + firewall rule on a clean Windows machine (`P7-T1`)
@@ -104,7 +105,7 @@ on real machines.
 | [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done |
 | [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Built and tested on one machine; the real home network check is still to do |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 7 / 7 | Done |
-| [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
+| [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the rules and measurements on the real laptop are still to do (`P5-T11`, manual checklist) |
 | [6](#phase-6--model-library) | Model library | 0 / 8 | Not started |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 0 / 9 | Not started |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
@@ -504,24 +505,24 @@ Being on the same Wi-Fi must not be enough to use someone's GPU.
 
 The policy loop with real signals, on the friend's laptop. This is the first real GPU test.
 
-- [ ] **P5-T1** — Policy loop running every couple of seconds, driving the Off / Available / Busy
+- [x] **P5-T1** — Policy loop running every couple of seconds, driving the Off / Available / Busy
       / Paused state machine and what clients see. The prototype's `policy()` is the reference
       implementation of the precedence order. *(spec §6.3)*
-- [ ] **P5-T2** — "Pause while I'm using the PC": Windows idle timer (`GetLastInputInfo`) with the
+- [x] **P5-T2** — "Pause while I'm using the PC": Windows idle timer (`GetLastInputInfo`) with the
       resume-after-away delay.
-- [ ] **P5-T3** — "Pause when these apps are open": running-process watcher, plus a picker that
+- [x] **P5-T3** — "Pause when these apps are open": running-process watcher, plus a picker that
       offers the apps currently running.
-- [ ] **P5-T4** — "Pause when another app uses the GPU": Windows GPU performance counters (the
+- [x] **P5-T4** — "Pause when another app uses the GPU": Windows GPU performance counters (the
       ones Task Manager uses), because NVML often can't report per-app VRAM on Windows.
-- [ ] **P5-T5** — NVML: temperature limit with hysteresis (pause 83 °C, resume 75 °C) and a free-
+- [x] **P5-T5** — NVML: temperature limit with hysteresis (pause 83 °C, resume 75 °C) and a free-
       VRAM check immediately before loading a model.
-- [ ] **P5-T6** — "Only when plugged in": `GetSystemPowerStatus`.
-- [ ] **P5-T7** — Allowed hours: weekly schedule checked by the policy loop.
-- [ ] **P5-T8** — GPU memory budget enforced before load, and max conversation length passed to
+- [x] **P5-T6** — "Only when plugged in": `GetSystemPowerStatus`.
+- [x] **P5-T7** — Allowed hours: weekly schedule checked by the policy loop.
+- [x] **P5-T8** — GPU memory budget enforced before load, and max conversation length passed to
       the engine as `-c`.
-- [ ] **P5-T9** — Free the GPU after idle, and keep the PC awake with `SetThreadExecutionState`
+- [x] **P5-T9** — Free the GPU after idle, and keep the PC awake with `SetThreadExecutionState`
       while serving — releasing it as soon as the host goes idle or pauses.
-- [ ] **P5-T10** — Graceful mid-reply pause: the reply finishes or is cut within a few seconds and
+- [x] **P5-T10** — Graceful mid-reply pause: the reply finishes or is cut within a few seconds and
       the client shows the reason with a retry, never a raw error. *(spec §6.3, §6.9)*
 - [ ] **P5-T11** — First real GPU measurements on the RTX A2000: tokens per second, model load
       time, VRAM use, temperatures. Record the numbers in the notes below.
@@ -534,6 +535,36 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 > Low CPU priority does not stop the engine competing for the GPU, and Windows gives apps no
 > control over GPU scheduling. The pause rules are the only thing actually protecting the owner's
 > experience — treat any regression in them as a release blocker, not a polish item.
+
+> `P5-T1`…`P5-T10` · 2026-10-13 · Claude (Opus 5.5)
+> * The decision is `crates/host/src/policy.rs::decide`, pure, with the prototype's precedence:
+>   off → battery → hours → listed app → other app on the GPU → at the desk → away countdown →
+>   temperature. 33 table cases plus hysteresis tests. A signal the machine can't read (`None`)
+>   never pauses. "At the desk" means under 30 s since the last input; between 30 s and the away
+>   time it's the countdown. Consequence worth telling the owner: with "Pause while I'm using the
+>   computer" on, sharing stays paused until they've been away that long *after* switching it on.
+> * Friend-facing reasons are gender-neutral in the real app ("They're using their computer",
+>   "Their laptop is on battery"); the preview keeps "he/his" because it is about Dara.
+> * Signals: `crates/host/src/world.rs`. Windows: `GetLastInputInfo`, `sysinfo` processes owned by
+>   the current user (friendly names for the D6 apps, system processes hidden),
+>   `\GPU Engine(*)\Utilization Percentage` via PDH summed per pid, ignoring our own and the
+>   engine's pids, 15 % threshold (a guess: tune it on the real laptop; browser video can
+>   reach 5–10 %), `GetSystemPowerStatus`, NVML for temperature, card name and free VRAM.
+>   Linux: processes, `/sys/class/power_supply`, NVML if present; no idle time.
+>   Compiled for Windows here (`--target x86_64-pc-windows-gnu`); none of it has run on Windows.
+> * `GPU_SHARE_WORLD_FILE=path.json` replaces the real signals with a JSON file read every tick,
+>   for development and `scripts/e2e/run.sh`, which now opens "Blender" that way and checks the
+>   owner sees "Blender is open" while the friend sees only the general reason.
+> * Free VRAM is checked with NVML right before a model loads (the loaded model's share counts
+>   as free since it's stopped first). Lowering the budget below the loaded model unloads it.
+>   `SetThreadExecutionState` runs on its own thread (`awake.rs`) because Windows ties it to the
+>   calling thread; it's on only while the gate is open and a model is loaded or answering.
+> * A cut or refused question gets an "Ask again" button in the chat (`P5-T10`).
+> * Allowed hours are one daily window (the UI's "Evenings and nights"), not a per-weekday
+>   schedule; the prototype never had one. Add it if the owner asks.
+> * Found by the e2e run, fixed, and covered by a test: `HostCore::view()` deadlocked once
+>   signals were present, because a `MutexGuard` temporary inside a struct literal lives until the
+>   end of the literal and the same mutex was locked again further down.
 
 ---
 

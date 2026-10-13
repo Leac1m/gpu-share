@@ -121,3 +121,16 @@ async fn a_host_that_switches_off_disappears_after_two_polls() {
     rt.refresh().await;
     assert!(rt.hosts().is_empty(), "two and it's gone");
 }
+
+#[tokio::test]
+async fn ask_again_after_a_pause_sends_the_same_question() {
+    let host = start_host(&[]).await;
+    let rt = paired_runtime(&host).await;
+    host.core.set_gate(host::core::Gate::Paused { owner: "x".into(), friend: "They're using their computer".into(), countdown: false });
+    rt.send("the question");
+    wait_for(&rt, |v| v.turn.is_none() && v.msgs.len() == 2).await;
+    host.core.set_gate(host::core::Gate::Open);
+    rt.retry();
+    let v = wait_for(&rt, |v| v.turn.is_none() && v.msgs.last().is_some_and(|m| m.role == "assistant")).await;
+    assert!(v.msgs.last().unwrap().text.contains("the question"));
+}

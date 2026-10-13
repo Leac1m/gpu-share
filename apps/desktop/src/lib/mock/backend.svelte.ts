@@ -611,6 +611,10 @@ export const clientBackend: ClientBackend = {
 		enqueue(ME.id, t, client.model);
 	},
 	stop: stopMine,
+	retry() {
+		const last = [...client.msgs].reverse().find((m) => m.role === 'user');
+		if (last && !hasJob(ME.id)) enqueue(ME.id, last.text, client.model);
+	},
 	setModel(id) {
 		client.model = id;
 	},
