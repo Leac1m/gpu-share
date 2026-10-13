@@ -8,7 +8,7 @@ learned the hard way that you should know before you start.
 |---|---|
 | Companion spec | [gpu-share-project.md](gpu-share-project.md) — the source of truth for *what* and *why* |
 | This file | The source of truth for *state* — what is done, in progress, blocked, and why |
-| Last updated | 12 September 2026 |
+| Last updated | 13 October 2026 |
 
 ---
 
@@ -99,8 +99,8 @@ on real machines.
 | Phase | Goal | Done | Status |
 |---|---|---|---|
 | [0](#phase-0--foundations) | Foundations and decisions | 5 / 6 | In progress |
-| [1](#phase-1--clickable-prototype) | Clickable prototype | 3 / 8 | Prototype built, feedback not yet gathered |
-| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 9 | Not started |
+| [1](#phase-1--clickable-prototype) | Clickable prototype | 3 / 10 | Prototype built, feedback not yet gathered |
+| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 10 | Not started |
 | [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
@@ -112,12 +112,15 @@ on real machines.
 
 ## Where the project stands today
 
-The repository contains **documentation only**. No application code exists yet.
+The repository holds the spec, the HTML prototype, and a scaffold with **mock data only**: no
+networking, engine, or persistence code exists yet.
 
 | What exists | Where | State |
 |---|---|---|
-| Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.2, draft but detailed enough to build from |
-| Clickable Phase 1 prototype | [gpu-share-preview.html](gpu-share-preview.html) | Single self-contained HTML file, 1246 lines, vanilla JS. Runs in any browser, no build step |
+| Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.3, draft but detailed enough to build from |
+| Clickable Phase 1 prototype | [gpu-share-preview.html](gpu-share-preview.html) | **Build 0.1** — single self-contained HTML file, 1246 lines, vanilla JS. The spec describes build 0.2 (queue shared by several friends); that file is not in this repo yet, see the `P1-T9` note |
+| Shared protocol crate | `crates/protocol` | Announcement type, the 5-endpoint gatekeeper allowlist as data, catalog entry and VRAM estimate. 8 tests |
+| Desktop app scaffold | `apps/desktop` | Tauri 2 + Svelte 5 port of prototype build 0.1 over a typed mock backend (`src/lib/mock/backend.svelte.ts`) |
 
 What the prototype actually simulates today: both machines side by side; the share switch; a
 policy loop (`policy()` / `tick()`) covering battery, schedule, named apps, GPU-heavy apps, idle
@@ -258,6 +261,13 @@ Goal: friends see and click every screen before anything technical exists, and s
 - [ ] **P1-T8** — Confirm the settings defaults and the pre-filled pause-app list from what he
       said. Current placeholders: budget 6.5 GB, context 4096, away 5 min, pause apps Blender /
       DaVinci Resolve / Steam, temp 83→75 °C, plugged-in only, max reply 1024. *(spec §6.4)*
+- [ ] **P1-T9** — Bring `docs/gpu-share-preview.html` up to build 0.2 (the build spec v0.3
+      describes) by copying it in from the project's Drive folder.
+- [ ] **P1-T10** — Bring the Svelte app's mock layer and screens up to spec v0.3: a queue shared by
+      several friends with "You're 2nd in line" and Cancel on the client, test-bench friends who can
+      ask questions, general pause reasons for friends vs. exact ones for the owner, client status
+      labels Ready / In use / Paused, and limits shown in tokens with approximate words.
+      *(spec §6.3, §6.4, §6.9)*
 
 **Done when:** friends have tried it and the UI changes are agreed.
 
@@ -273,6 +283,13 @@ Goal: friends see and click every screen before anything technical exists, and s
 > The defaults in the prototype are proposals, not decisions. Do not treat them as agreed until
 > P1-T5 has happened. Note the budget is 6.5 GB in the prototype and 6 GB in the spec table —
 > reconcile the two when the real setting is built.
+
+> `P1-T9` · 2026-10-13 · Claude (Opus 5.5)
+> Spec v0.3 was brought in from the Drive copy today, but the matching prototype (build 0.2,
+> `gpu-share-preview.html`, dated 9 October 2026) was not: the Drive file is private and this
+> session had no way to save it to disk. The file in `docs/` is still build 0.1, and the Svelte
+> port (`P0-T4`) was made from build 0.1, so neither has the multi-friend queue. `P1-T10` should
+> be done from build 0.2 once `P1-T9` lands, not from the spec text alone.
 
 ---
 
@@ -299,6 +316,10 @@ Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU ne
       picker, markdown and code formatting, SQLite history on the client. *(spec §6.9)*
 - [ ] **P2-T9** — Per-device usage counters in SQLite (requests, tokens in/out, GPU seconds), with
       a test asserting prompt and reply text is never written anywhere. *(spec §6.8)*
+- [ ] **P2-T10** — Queue rules added in spec v0.3: at most one waiting request per paired device;
+      when the next request wants a different model, stop the engine and start one for that model;
+      when a pause triggers, turn away everything still waiting with the pause message.
+      *(spec §6.3, §6.8)*
 
 **Done when:** chat streams through the real gatekeeper and the real engine.
 
@@ -310,6 +331,14 @@ Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU ne
 > See llama.cpp issue #19379. Switching model = stop one process, start another; when sharing
 > stops, VRAM use must return to zero. Do not "optimise" this back to router mode without
 > re-checking that issue.
+
+> `P2-T1` · 2026-10-13 · Claude (Opus 5.5)
+> For cloud sessions (see `CLAUDE.md`): under the default "Trusted" network level the VM can reach
+> GitHub release downloads, crates.io and npm, but `huggingface.co` is **not** on the default
+> allowlist per the cloud-environments docs. So a prebuilt CPU `llama-server` from llama.cpp's
+> GitHub releases should download fine, while the dev GGUF model will not unless the project
+> author adds `huggingface.co` to the environment's allowed domains, or the model is fetched on a
+> local machine. Not yet tried in a cloud session — confirm and correct this note when you do.
 
 ---
 
@@ -481,12 +510,14 @@ task that depended on it. If you resolve something not listed here, add a row.
 |---|---|---|---|---|
 | D1 | Project name | Decided | "GPU Share" — the working title is kept as the real name | 12 September 2026 |
 | D2 | Frontend framework (Svelte or React) | Decided | Svelte — smaller runtime, less boilerplate for a state-machine-heavy UI (share switch, policy states, streaming chat) | 12 September 2026 |
-| D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option | — |
-| D4 | Code-signing certificate: cost and timing | Open | — | — |
-| D5 | Which models go in the first catalog (licences checked) | Open | — | — |
-| D6 | Which apps to pre-fill in the pause list | Open | Ask the friend during P1-T5 | — |
+| D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option. *Recommended 13 October 2026, not yet confirmed:* bundle the catalog in the app until Phase 6, then GitHub | — |
+| D4 | Code-signing certificate: cost and timing | Open | *Recommended, not yet confirmed:* none for the pilot; warn friends about the SmartScreen prompt and decide before any wider release | — |
+| D5 | Which models go in the first catalog (licences checked) | Open | *Recommended, not yet confirmed:* Qwen3 4B and Qwen3 8B at Q4_K_M (Apache 2.0), thinking mode off so it doesn't eat the 1,024-token reply cap. Licences and file hashes still to be checked at the source | — |
+| D6 | Which apps to pre-fill in the pause list | Open | Ask the friend during P1-T5. *Recommended starting list:* Blender, DaVinci Resolve, Premiere Pro, After Effects, Photoshop, Unreal Engine, Unity, OBS | — |
 | D7 | Multicast group and ports (must not collide with LocalSend) | Decided | Multicast `239.192.152.143:53737` (organization-local scope per RFC 2365, distinct from LocalSend's global-scope `224.0.0.167:53317`). Gatekeeper HTTPS on `50123` (the spec's own placeholder, kept as the real default). | 12 September 2026 |
-| D8 | How renting would work, if it happens | Deferred | — | — |
+| D8 | How renting would work, if it happens | Deferred | Not part of the first build (project author). Keep per-device usage counts; build nothing for pricing, payments or billing | 13 October 2026 |
+| D9 | Per-friend priority or daily limit (spec §9, added in v0.3) | Open | *Recommended, not yet confirmed:* neither in the first build; first come first served, one waiting request per device and the reply cap are enough until the pilot says otherwise | — |
+| D10 | What the first build is for | Decided | A working prototype the project author can try with friends comes first (project author). *Proposed cut, not yet confirmed:* real chat with the queue, multicast discovery plus "Add by IP", pairing, the share switch with the idle and other-app-on-GPU pause rules, two fixed models, unsigned installers, no auto-updater | 13 October 2026 |
 
 ---
 
@@ -495,3 +526,4 @@ task that depended on it. If you resolve something not listed here, add a row.
 | Date | Change |
 |---|---|
 | 12 September 2026 | Roadmap created from spec v0.2. Phase 1 prototype tasks marked done. |
+| 13 October 2026 | Spec updated to v0.3. Added `P1-T9`, `P1-T10`, `P2-T10` for what v0.3 introduced. Decisions D8 and D10 recorded, D9 added, recommendations noted on D3–D6. "Where the project stands today" corrected to mention the scaffold. Cloud-session setup added (`CLAUDE.md`, `scripts/cloud-setup.sh`). |

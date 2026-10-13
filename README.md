@@ -1,4 +1,4 @@
-# GPU Share (working title)
+# GPU Share
 
 Use a friend's idle graphics card over the home network, safely and on their terms.
 
@@ -10,7 +10,7 @@ Use a friend's idle graphics card over the home network, safely and on their ter
 
 ```
 crates/protocol/   Shared Rust types for every message the host and client exchange
-apps/desktop/      Svelte + TypeScript frontend (Tauri app; Tauri wiring not yet done — see roadmap P0-T3)
+apps/desktop/      Tauri 2 app: Svelte + TypeScript frontend over mock data, Rust side in src-tauri/
 docs/              Spec, roadmap, and the HTML prototype
 ```
 
