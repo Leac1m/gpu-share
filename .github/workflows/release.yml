@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the installers (roadmap Phase 7). Runs by hand (Actions → Release → Run workflow), or
-# on a tag like v0.1.0, which also publishes a GitHub release with the files attached.
+# Builds the installers (roadmap Phase 7). Runs by hand (Actions → Release → Run workflow), on
+# any push that changes how the app is packaged (so packaging breaks show up before a release),
+# or on a tag like v0.1.0, which also makes a draft GitHub release with the files attached.
 #
 # The Windows installer does not contain the AI engine: it carries engine-manifest.json, made
 # here from the llama.cpp release pinned in engine-version.txt (URLs, sizes, SHA-256s), and the
@@ -11,6 +12,11 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    paths:
+      - .github/workflows/release.yml
+      - apps/desktop/src-tauri/tauri.conf.json
+      - apps/desktop/src-tauri/windows/**
+      - engine-version.txt
 
 permissions:
   contents: write
