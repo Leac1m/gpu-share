@@ -12,6 +12,8 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    # branch pushes only when packaging changed (path filters don't apply to tags)
+    branches: ["**"]
     paths:
       - .github/workflows/release.yml
       - apps/desktop/src-tauri/tauri.conf.json
