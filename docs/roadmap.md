@@ -106,7 +106,7 @@ on real machines.
 | [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Built and tested on one machine; the real home network check is still to do |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 7 / 7 | Done |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the rules and measurements on the real laptop are still to do (`P5-T11`, manual checklist) |
-| [6](#phase-6--model-library) | Model library | 0 / 8 | Not started |
+| [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 0 / 9 | Not started |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
@@ -573,22 +573,51 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 - [ ] **P6-T1** — Catalog hosted as a JSON file (GitHub Releases is the default option), with two
       or three starter models — one 3-4B, one 7-8B, both 4-bit — after checking their licences.
       *(spec §6.5, §9)*
-- [ ] **P6-T2** — Catalog fetch and cache in the app, with a sensible offline fallback.
-- [ ] **P6-T3** — Resumable downloads with a free-disk-space check first.
-- [ ] **P6-T4** — SHA-256 verification after download. Models saved only into the app's own
+- [x] **P6-T2** — Catalog fetch and cache in the app, with a sensible offline fallback.
+- [x] **P6-T3** — Resumable downloads with a free-disk-space check first.
+- [x] **P6-T4** — SHA-256 verification after download. Models saved only into the app's own
       models folder.
-- [ ] **P6-T5** — GGUF header parsing: layer count, attention heads, embedding size.
-- [ ] **P6-T6** — VRAM estimate (file size + KV cache + ~0.5 GB overhead) driving the "Fits your
+- [x] **P6-T5** — GGUF header parsing: layer count, attention heads, embedding size.
+- [x] **P6-T6** — VRAM estimate (file size + KV cache + ~0.5 GB overhead) driving the "Fits your
       GPU" badge and the greyed-out state.
-- [ ] **P6-T7** — Per-model controls: enable/disable (disabled models hidden from clients), set as
+- [x] **P6-T7** — Per-model controls: enable/disable (disabled models hidden from clients), set as
       default, remove — unloading first if the model is loaded.
-- [ ] **P6-T8** — Advanced toggle: add from a Hugging Face link.
+- [x] **P6-T8** — Advanced toggle: add from a Hugging Face link.
 
 **Done when:** download, verify, and "fits your GPU" work end to end.
 
 ### Notes — Phase 6
 
-_None yet._
+> `P6-T1`…`P6-T8` · 2026-10-13 · Claude (Opus 5.5)
+> * The starter catalog is `crates/host/catalog.json`, bundled into the app: **Qwen3 4B and 8B
+>   at Q4_K_M** from the official `Qwen/Qwen3-*-GGUF` repos, URLs pinned to a commit, sizes and
+>   SHA-256 taken from Hugging Face's API on 2026-10-13, licence Apache 2.0 per the model cards.
+>   Thinking is turned off with `--chat-template-kwargs {"enable_thinking":false}` (D5). Plus the
+>   135M dev model, shown only in debug builds or with `GPU_SHARE_DEV=1`. `P6-T1` stays open
+>   because the file isn't *hosted* anywhere yet: the app fetches `GPU_SHARE_CATALOG_URL` when
+>   set (cached for offline starts, falling back to the bundled copy), so once D3 is decided,
+>   publishing the JSON and setting a default URL is all that's left.
+> * Every catalog entry is validated before use (`library::validate`): the id becomes a file name
+>   so it must be a plain slug, the SHA-256 must be 64 hex, downloads only from `huggingface.co`
+>   over HTTPS.
+> * Downloads (`library::download`) resume a `.part` file with an HTTP Range request, hash the
+>   existing part first so the whole file is always checked, start over cleanly if the server
+>   ignores the range, and need the size plus 1 GB free first. Suite 10 is `tests/library.rs`
+>   (local server that drops the connection mid-transfer). A real 105 MB download from Hugging
+>   Face through the same code passed here (`-- --ignored`).
+> * GGUF header parser (`gguf.rs`) with hard caps on every length and a proptest that random or
+>   corrupted bytes never panic (suite 8). It read the real SmolLM2 file correctly. Installed
+>   models use the shape from their own file; catalog shapes are only for models not yet
+>   downloaded.
+> * "Add from a Hugging Face link" (`P6-T8`) takes the size and SHA-256 from the `X-Linked-Size`
+>   / `X-Linked-Etag` headers on Hugging Face's redirect (so it must not follow redirects), so
+>   those downloads are verified too. Models added this way are kept in `custom_models.json`.
+> * Removing a model that is answering someone is refused with a message; a loaded but idle
+>   model is unloaded first. "Make default" puts a model first in friends' pickers.
+> * `scripts/e2e/run.sh` now removes the dev model on the owner's Models screen, adds it back
+>   (a real 145 MB download, checksum verified), and has the friend chat with it.
+> * The dev profile now builds dependencies without debug info: `target/` had reached 18 GB and
+>   filled the cloud session's disk.
 
 ---
 
@@ -651,7 +680,7 @@ task that depended on it. If you resolve something not listed here, add a row.
 | D2 | Frontend framework (Svelte or React) | Decided | Svelte — smaller runtime, less boilerplate for a state-machine-heavy UI (share switch, policy states, streaming chat) | 12 September 2026 |
 | D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option. *Recommended 13 October 2026, not yet confirmed:* bundle the catalog in the app until Phase 6, then GitHub | — |
 | D4 | Code-signing certificate: cost and timing | Open | *Recommended, not yet confirmed:* none for the pilot; warn friends about the SmartScreen prompt and decide before any wider release | — |
-| D5 | Which models go in the first catalog (licences checked) | Open | *Recommended, not yet confirmed:* Qwen3 4B and Qwen3 8B at Q4_K_M (Apache 2.0), thinking mode off so it doesn't eat the 1,024-token reply cap. Licences and file hashes still to be checked at the source | — |
+| D5 | Which models go in the first catalog (licences checked) | Open | *Recommended, not yet confirmed:* Qwen3 4B and Qwen3 8B at Q4_K_M (Apache 2.0), thinking mode off so it doesn't eat the 1,024-token reply cap. Licences (Apache 2.0) and SHA-256s checked at the source on 13 October 2026 and built into the app's catalog; awaiting the project author's confirmation | — |
 | D6 | Which apps to pre-fill in the pause list | Open | Ask the friend during P1-T5. *Recommended starting list:* Blender, DaVinci Resolve, Premiere Pro, After Effects, Photoshop, Unreal Engine, Unity, OBS | — |
 | D7 | Multicast group and ports (must not collide with LocalSend) | Decided | Multicast `239.192.152.143:53737` (organization-local scope per RFC 2365, distinct from LocalSend's global-scope `224.0.0.167:53317`). Gatekeeper HTTPS on `50123` (the spec's own placeholder, kept as the real default). | 12 September 2026 |
 | D8 | How renting would work, if it happens | Deferred | Not part of the first build (project author). Keep per-device usage counts; build nothing for pricing, payments or billing | 13 October 2026 |

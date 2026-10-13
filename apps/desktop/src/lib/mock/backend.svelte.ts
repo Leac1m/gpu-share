@@ -94,7 +94,8 @@ function freshSettings(): HostSettings {
 		hoursTo: 8,
 		maxReply: 1024,
 		idleFreeMin: 5,
-		disabled: []
+		disabled: [],
+		defaultModel: null
 	};
 }
 
@@ -554,6 +555,12 @@ export const hostBackend: HostBackend = {
 		if (host.loaded === id && !job) host.loaded = null;
 		host.installed = host.installed.filter((x) => x !== id);
 		syncViews();
+	},
+	modelSetDefault(id) {
+		s().defaultModel = id;
+	},
+	async modelAddLink() {
+		return 'In the finished app this adds a model from a Hugging Face link, checked like the others.';
 	},
 	unpair,
 	pairAllow() {

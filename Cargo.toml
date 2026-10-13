@@ -40,3 +40,11 @@ protocol = { path = "crates/protocol" }
 netcore = { path = "crates/netcore" }
 host = { path = "crates/host" }
 client = { path = "crates/client" }
+
+# Keep debug builds small: line tables for our own crates (enough for backtraces), none for
+# dependencies. Full debug info made `target/` grow past 15 GB with all the test binaries.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

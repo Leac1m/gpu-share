@@ -26,9 +26,9 @@ pub fn entry(id: &str) -> CatalogEntry {
         id: id.into(),
         name: format!("Model {id}"),
         description: String::new(),
-        file_url: String::new(),
+        file_url: format!("https://huggingface.co/test/test/resolve/main/{id}.gguf"),
         size_bytes: 1,
-        sha256: String::new(),
+        sha256: "0".repeat(64),
         quantization: "Q4_K_M".into(),
         license: "Apache 2.0".into(),
         default_context: 4096,
@@ -76,6 +76,7 @@ pub async fn start_host_with(
         },
         catalog,
         dev_models: true,
+        download_hosts: vec!["huggingface.co".into(), "127.0.0.1".into()],
     })
     .unwrap();
     core.set_sharing(true);

@@ -74,6 +74,8 @@ export interface HostSettings {
 	idleFreeMin: number;
 	/** Models switched off by the owner (hidden from friends). */
 	disabled: string[];
+	/** The model friends' pickers start on. */
+	defaultModel: string | null;
 }
 
 export type JobPhase = 'queued' | 'loading' | 'streaming';
@@ -123,6 +125,10 @@ export interface HostBackend {
 	modelAdd(id: string): void;
 	modelToggle(id: string): void;
 	modelRemove(id: string): void;
+	/** The model friends' pickers start on. */
+	modelSetDefault(id: string): void;
+	/** Add from a Hugging Face link. Resolves to an error message, or null once downloading. */
+	modelAddLink(url: string): Promise<string | null>;
 	unpair(id: string): void;
 	pairAllow(): void;
 	pairDeny(): void;

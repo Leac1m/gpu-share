@@ -74,17 +74,40 @@ pub fn host_model_toggle(s: S, id: String) -> R {
 }
 
 #[tauri::command]
-pub fn host_model_add(s: S, id: String) -> R {
-    let _ = id;
-    host(&s)?.core.toast("Not yet", "Downloading models arrives with the model library.");
+pub async fn host_model_add(s: S<'_>, id: String) -> R {
+    host::library::start_download(host(&s)?.core.clone(), id);
     Ok(())
 }
 
 #[tauri::command]
-pub fn host_model_remove(s: S, id: String) -> R {
-    let _ = id;
-    host(&s)?.core.toast("Not yet", "Removing models arrives with the model library.");
+pub async fn host_model_remove(s: S<'_>, id: String) -> R {
+    let h = host(&s)?;
+    if let Err(e) = host::library::remove(&h.core, &id).await {
+        h.core.toast("Couldn't remove the model", e);
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn host_model_set_default(s: S, id: String) -> R {
+    host(&s)?.core.update_settings(|st| st.default_model = Some(id));
+    Ok(())
+}
+
+/// "Add from a Hugging Face link". Resolves to an error message, or null once the download
+/// has started.
+#[tauri::command]
+pub async fn host_model_add_link(s: S<'_>, url: String) -> R<Option<String>> {
+    let h = host(&s)?;
+    match host::library::entry_from_hf_link(&url).await {
+        Ok(e) => {
+            let id = e.id.clone();
+            h.core.add_custom(e);
+            host::library::start_download(h.core.clone(), id);
+            Ok(None)
+        }
+        Err(msg) => Ok(Some(msg)),
+    }
 }
 
 #[tauri::command]

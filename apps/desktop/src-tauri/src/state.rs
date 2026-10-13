@@ -138,7 +138,21 @@ impl AppState {
                     },
                     catalog: bundled_catalog(),
                     dev_models: cfg!(debug_assertions) || std::env::var("GPU_SHARE_DEV").is_ok(),
+                    download_hosts: host::library::DEFAULT_HOSTS.iter().map(|h| h.to_string()).collect(),
                 })?;
+                {
+                    // a newer catalog, if one is published (D3); offline starts use the cache
+                    let core = core.clone();
+                    let url = std::env::var("GPU_SHARE_CATALOG_URL").ok();
+                    let cache = data_dir.join("catalog-cache.json");
+                    tauri::async_runtime::spawn(async move {
+                        if url.is_some() {
+                            let hosts = core.cfg.download_hosts.clone();
+                            let list = host::library::load_catalog(bundled_catalog(), url.as_deref(), &cache, &hosts).await;
+                            core.set_catalog(list);
+                        }
+                    });
+                }
                 let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), world);
                 tauri::async_runtime::spawn(rt.clone().run());
                 tauri::async_runtime::spawn(host::announce::run(rt.core.clone()));

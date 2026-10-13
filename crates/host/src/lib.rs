@@ -6,8 +6,10 @@ pub mod clamp;
 pub mod core;
 pub mod engine;
 pub mod gatekeeper;
+pub mod gguf;
 #[cfg(windows)]
 mod jobobject;
+pub mod library;
 pub mod line;
 pub mod pairing;
 pub mod policy;

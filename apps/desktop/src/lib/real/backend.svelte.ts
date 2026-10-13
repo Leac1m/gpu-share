@@ -27,7 +27,8 @@ function emptyHost(): HostView {
 			hoursTo: 8,
 			maxReply: 1024,
 			idleFreeMin: 5,
-			disabled: []
+			disabled: [],
+			defaultModel: null
 		},
 		state: 'off',
 		reason: '',
@@ -108,6 +109,8 @@ export const hostBackend: HostBackend = {
 	modelAdd: (id) => call('host_model_add', { id }),
 	modelToggle: (id) => call('host_model_toggle', { id }),
 	modelRemove: (id) => call('host_model_remove', { id }),
+	modelSetDefault: (id) => call('host_model_set_default', { id }),
+	modelAddLink: (url) => invoke<string | null>('host_model_add_link', { url }),
 	unpair: (id) => call('host_unpair', { id }),
 	pairAllow: () => call('host_pair_allow'),
 	pairDeny: () => call('host_pair_deny'),

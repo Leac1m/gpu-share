@@ -48,6 +48,8 @@ pub fn run() {
             commands::host_model_toggle,
             commands::host_model_add,
             commands::host_model_remove,
+            commands::host_model_set_default,
+            commands::host_model_add_link,
             commands::host_unpair,
             commands::host_pair_allow,
             commands::host_pair_deny,

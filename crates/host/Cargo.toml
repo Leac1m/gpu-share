@@ -27,7 +27,7 @@ tower = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-sysinfo = { version = "0.37", default-features = false, features = ["system", "user"] }
+sysinfo = { version = "0.37", default-features = false, features = ["system", "user", "disk"] }
 nvml-wrapper = "0.11"
 
 [target.'cfg(windows)'.dependencies]

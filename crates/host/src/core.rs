@@ -37,6 +37,8 @@ pub struct HostConfig {
     pub catalog: Vec<CatalogEntry>,
     /// Show `dev_only` catalog entries (debug builds, or `GPU_SHARE_DEV=1`).
     pub dev_models: bool,
+    /// Hosts models may be downloaded from.
+    pub download_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -103,6 +105,12 @@ pub struct HostCore {
     /// The latest reading of the computer's state, for the owner's screen.
     signals: Mutex<crate::policy::Signals>,
     world: Mutex<Option<Arc<dyn crate::world::World>>>,
+    /// The catalog in use: bundled or fetched, plus models added from a link, with shapes read
+    /// from the files that are on disk.
+    catalog: Mutex<Vec<CatalogEntry>>,
+    downloads: Mutex<std::collections::HashMap<String, ViewDownload>>,
+    /// For model downloads: follows the system proxy, unlike `engine_http`.
+    pub download_http: reqwest::Client,
     inner: Mutex<Inner>,
     settings_path: PathBuf,
     /// For the gatekeeper's engine requests: no proxy, no timeout (replies stream for a while).
@@ -145,11 +153,15 @@ impl HostCore {
             settings.sharing = false; // spec §6.4: sharing starts off after a restart by default
         }
         let gate = if settings.sharing { Gate::Open } else { Gate::Off };
-        Ok(Arc::new(Self {
+        let initial_catalog = cfg.catalog.clone();
+        let core = Arc::new(Self {
             supervisor: Supervisor::new(cfg.engine.clone()),
             pairing: Default::default(),
             signals: Mutex::new(Default::default()),
             world: Mutex::new(None),
+            catalog: Mutex::new(vec![]),
+            downloads: Mutex::new(Default::default()),
+            download_http: reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build().unwrap(),
             cfg,
             identity,
             store,
@@ -163,7 +175,9 @@ impl HostCore {
             }),
             settings_path,
             engine_http: reqwest::Client::builder().no_proxy().build().unwrap(),
-        }))
+        });
+        core.set_catalog(initial_catalog);
+        Ok(core)
     }
 
     // ------------------------------------------------------------------ settings & models
@@ -187,7 +201,72 @@ impl HostCore {
     }
 
     pub fn catalog(&self) -> Vec<CatalogEntry> {
-        self.cfg.catalog.iter().filter(|e| self.cfg.dev_models || !e.dev_only).cloned().collect()
+        self.catalog.lock().unwrap().iter().filter(|e| self.cfg.dev_models || !e.dev_only).cloned().collect()
+    }
+
+    fn custom_path(&self) -> PathBuf {
+        self.cfg.data_dir.join("custom_models.json")
+    }
+
+    /// Models added from a Hugging Face link, kept across restarts.
+    fn custom_entries(&self) -> Vec<CatalogEntry> {
+        std::fs::read(self.custom_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    /// Replaces the catalog (bundled or fetched), keeping models added from links, and reads
+    /// the real shape of every model already on disk.
+    pub fn set_catalog(&self, list: Vec<CatalogEntry>) {
+        let mut list = crate::library::validate(list, &self.cfg.download_hosts);
+        for c in crate::library::validate(self.custom_entries(), &["huggingface.co".into()]) {
+            if !list.iter().any(|e| e.id == c.id) {
+                list.push(c);
+            }
+        }
+        for e in &mut list {
+            if let Ok(h) = crate::gguf::read_file(&self.cfg.models_dir.join(e.file_name())) {
+                e.shape = Some(h.shape);
+            }
+        }
+        *self.catalog.lock().unwrap() = list;
+    }
+
+    /// Adds a model from a link to the catalog (and remembers it).
+    pub fn add_custom(&self, e: CatalogEntry) {
+        let mut custom = self.custom_entries();
+        custom.retain(|c| c.id != e.id);
+        custom.push(e.clone());
+        let _ = std::fs::write(self.custom_path(), serde_json::to_vec_pretty(&custom).unwrap());
+        let mut cat = self.catalog.lock().unwrap();
+        cat.retain(|c| c.id != e.id);
+        cat.push(e);
+    }
+
+    /// After a download: the shape from the file itself replaces the catalog's guess (`P6-T6`).
+    pub fn refresh_shape(&self, id: &str, path: &Path) {
+        match crate::gguf::read_file(path) {
+            Ok(h) => {
+                if let Some(e) = self.catalog.lock().unwrap().iter_mut().find(|e| e.id == id) {
+                    e.shape = Some(h.shape);
+                }
+            }
+            Err(err) => log::warn!("{id}: {err}"),
+        }
+    }
+
+    pub fn set_download(&self, id: &str, d: Option<ViewDownload>) {
+        let mut all = self.downloads.lock().unwrap();
+        match d {
+            Some(d) => {
+                all.insert(id.to_string(), d);
+            }
+            None => {
+                all.remove(id);
+            }
+        }
+    }
+
+    pub fn downloading(&self, id: &str) -> bool {
+        self.downloads.lock().unwrap().contains_key(id)
     }
 
     pub fn model_path(&self, e: &CatalogEntry) -> PathBuf {
@@ -207,13 +286,19 @@ impl HostCore {
         }
     }
 
-    /// Installed, switched on, and within the memory budget: what friends may pick.
+    /// Installed, switched on, and within the memory budget: what friends may pick. The owner's
+    /// default model comes first, so it is what a friend's picker starts on (`P6-T7`).
     pub fn offered(&self) -> Vec<CatalogEntry> {
         let s = self.settings();
-        self.installed()
+        let mut list: Vec<CatalogEntry> = self
+            .installed()
             .into_iter()
             .filter(|e| !s.disabled.contains(&e.id) && Self::vram_gb(e, s.ctx) <= s.budget)
-            .collect()
+            .collect();
+        if let Some(d) = &s.default_model {
+            list.sort_by_key(|e| &e.id != d);
+        }
+        list
     }
 
     pub fn model_spec(&self, id: &str) -> Option<ModelSpec> {
@@ -251,13 +336,14 @@ impl HostCore {
     pub fn vram_shortfall(&self, spec: &ModelSpec) -> Option<f64> {
         let free = self.world()?.free_vram_gb()?;
         let ctx = spec.ctx;
-        let entry = self.cfg.catalog.iter().find(|e| e.id == spec.id)?;
+        let catalog = self.catalog();
+        let entry = catalog.iter().find(|e| e.id == spec.id)?;
         let need = Self::vram_gb(entry, ctx);
         let released = self
             .supervisor
             .status()
             .loaded
-            .and_then(|id| self.cfg.catalog.iter().find(|e| e.id == id))
+            .and_then(|id| catalog.iter().find(|e| e.id == id))
             .map(|e| Self::vram_gb(e, ctx))
             .unwrap_or(0.0);
         let short = need - (free + released);
@@ -492,7 +578,7 @@ impl HostCore {
             pending,
             catalog: catalog.iter().map(ViewModel::from_entry).collect(),
             installed,
-            downloads: Default::default(),
+            downloads: self.downloads.lock().unwrap().clone(),
             toasts: inner
                 .toasts
                 .iter()
@@ -563,7 +649,7 @@ pub struct ViewPending {
     pub code: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ViewDownload {
     pub pct: f64,
     pub stage: String,

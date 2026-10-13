@@ -6,6 +6,8 @@
 import { writeFileSync } from 'node:fs';
 import { btn, Session } from './wd.mjs';
 
+const tab = (label) => `//div[contains(@class,"tabs")]//button[normalize-space(.)="${label}"]`;
+
 const APP = process.env.APP;
 const OUT = process.env.OUT ?? '.';
 const log = (...a) => console.log('[e2e]', ...a);
@@ -58,6 +60,21 @@ try {
 	if (ownerText.includes('capital of France')) throw new Error('the owner can see the question!');
 	log('owner: 1 question counted, question text not shown');
 
+	// --- the model library: remove the model, add it back from the catalog (real download)
+	await owner.click(tab('Models'));
+	const devCard = '//div[contains(@class,"model")][.//div[contains(@class,"nm") and contains(., "SmolLM2")]]';
+	await owner.wait(`${devCard}//span[contains(., "Fits your card")]`);
+	await owner.click(`${devCard}//button[contains(., "Remove")]`);
+	await owner.click(`${devCard}//button[normalize-space(.)="Add"]`, 15000);
+	log('owner: removed the model, downloading it again…');
+	await owner.wait(`//div[contains(@class,"toast") and contains(., "Model added")]`, 180000);
+	log('owner: "Model added" (downloaded and checksum verified)');
+	await owner.click(tab('Share'));
+	await friend.type('//div[contains(@class,"composer")]//input', 'Say hello.');
+	await friend.click(btn('Send'));
+	await friend.wait('(//div[contains(@class,"msg ai")])[2]', 90000);
+	log('friend: answered by the re-downloaded model');
+
 	// --- a pause rule: Blender opens on the owner's computer (via the dev world file)
 	writeFileSync(`${OUT}/world.json`, JSON.stringify({ running_apps: ['Blender'] }));
 	await owner.wait('//div[contains(@class,"banner warn") and contains(., "Blender is open")]', 15000);
@@ -73,11 +90,15 @@ try {
 
 	// --- the owner switches sharing off: the friend sees the host disappear
 	await owner.click('//div[contains(@class,"bigswitch")]//button[@role="switch"]');
-	await friend.click('//div[@role="tablist"]//button[contains(., "Computers")]');
+	await friend.click(tab('Computers'));
 	await friend.wait('//div[contains(@class,"big") and contains(., "Looking for computers")]', 30000);
 	log('friend: owner disappeared after sharing was switched off');
 	await owner.screenshot(`${OUT}/e2e-owner-share.png`);
 	log('PASS');
+} catch (e) {
+	await owner.screenshot(`${OUT}/fail-owner.png`).catch(() => {});
+	await friend.screenshot(`${OUT}/fail-friend.png`).catch(() => {});
+	throw e;
 } finally {
 	await owner.end();
 	await friend.end();

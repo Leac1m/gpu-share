@@ -33,6 +33,8 @@ pub struct HostSettings {
     pub idle_free_min: u32,
     /// Models the owner switched off.
     pub disabled: Vec<String>,
+    /// The model friends' pickers start on.
+    pub default_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +67,7 @@ impl Default for HostSettings {
             max_reply: 1024,
             idle_free_min: 5,
             disabled: vec![],
+            default_model: None,
         }
     }
 }
