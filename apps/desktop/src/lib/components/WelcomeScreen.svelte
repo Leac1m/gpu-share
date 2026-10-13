@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { hostBackend } from '../mock/backend.svelte';
+	import { hostBackend } from '../backend';
+
+	const card = $derived(hostBackend.view.card?.name ?? 'graphics card');
 </script>
 
 <div class="welcome">
-	<h3>Lend your graphics card to a friend</h3>
+	<h3>Lend your graphics card to your friends</h3>
 	<p class="sub">
-		Your RTX A2000 sits idle most of the day. This app lets one friend on your Wi-Fi borrow it to
-		run AI chat models, and only when you say so.
+		Your {card} sits idle most of the day. This app lets friends on your Wi-Fi borrow it to run AI chat
+		models, one question at a time, and only when you say so.
 	</p>
 	<div class="points">
 		<div class="wpoint">
@@ -15,7 +17,7 @@
 				<div class="t">One switch, and it's yours again</div>
 				<div class="d">
 					Turn sharing off and the app stops completely. Your graphics card is freed and your
-					computer disappears from your friend's screen.
+					computer disappears from your friends' screens.
 				</div>
 			</div>
 		</div>
@@ -25,7 +27,7 @@
 				<div class="t">It gets out of your way on its own</div>
 				<div class="d">
 					Open Blender, unplug the charger, or just sit down at your desk, and sharing pauses
-					without you doing anything.
+					without you doing anything. Your friends see that you're busy, not what you opened.
 				</div>
 			</div>
 		</div>

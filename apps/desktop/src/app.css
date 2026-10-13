@@ -296,3 +296,8 @@ input[type=range]{width:150px;accent-color:var(--live)}
   .readouts{grid-template-columns:1fr 1fr}
   .safety{grid-template-columns:1fr}
 }
+
+/* chat formatting (lib/markdown.ts) */
+.msg pre{margin:6px 0;padding:9px 11px;border-radius:7px;background:var(--panel);border:1px solid var(--rule);overflow-x:auto;white-space:pre;font-size:12.5px}
+.msg code{font-family:'DM Mono',ui-monospace,monospace;font-size:.92em}
+.msg :not(pre)>code{padding:1px 4px;border-radius:4px;background:var(--panel)}

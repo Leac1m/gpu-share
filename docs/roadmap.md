@@ -98,8 +98,8 @@ on real machines.
 
 | Phase | Goal | Done | Status |
 |---|---|---|---|
-| [0](#phase-0--foundations) | Foundations and decisions | 5 / 6 | In progress |
-| [1](#phase-1--clickable-prototype) | Clickable prototype | 3 / 10 | Prototype built, feedback not yet gathered |
+| [0](#phase-0--foundations) | Foundations and decisions | 6 / 6 | Done |
+| [1](#phase-1--clickable-prototype) | Clickable prototype | 5 / 10 | Build 0.2 in the repo and the Svelte app; feedback not yet gathered |
 | [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 10 | Not started |
 | [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
@@ -147,7 +147,7 @@ Phase 2 can't start without it.
       *(spec §8 Phase 1)*
 - [x] **P0-T5** — Choose and document the multicast group, multicast port, and gatekeeper TCP
       port. Must not collide with LocalSend (224.0.0.167:53317). *(spec §6.6)*
-- [ ] **P0-T6 [wip]** — CI that builds and tests on both Ubuntu and Windows.
+- [x] **P0-T6** — CI that builds and tests on both Ubuntu and Windows.
 
 **Done when:** `cargo build` and the frontend build both pass on Ubuntu and Windows, and the
 ported UI behaves like the HTML prototype.
@@ -236,6 +236,12 @@ ported UI behaves like the HTML prototype.
 > windows as one simulated environment with a single shared clock — worth revisiting when Phase 3
 > gives each machine its own real clock.
 
+> `P0-T6` · 2026-10-13 · Claude (Opus 5.5)
+> Confirmed: CI run 3 on `main` (merge of PR #1, 2026-10-13) passed all three jobs, Ubuntu tests +
+> clippy, Windows `cargo check`, frontend build. The workflow now also runs on pushes to every
+> branch (work is pushed straight to a branch without PRs in some sessions, which otherwise got
+> no CI at all) and runs `npm run check` and `npm test` in the frontend job.
+
 ---
 
 ## Phase 1 — Clickable prototype
@@ -261,9 +267,9 @@ Goal: friends see and click every screen before anything technical exists, and s
 - [ ] **P1-T8** — Confirm the settings defaults and the pre-filled pause-app list from what he
       said. Current placeholders: budget 6.5 GB, context 4096, away 5 min, pause apps Blender /
       DaVinci Resolve / Steam, temp 83→75 °C, plugged-in only, max reply 1024. *(spec §6.4)*
-- [ ] **P1-T9** — Bring `docs/gpu-share-preview.html` up to build 0.2 (the build spec v0.3
+- [x] **P1-T9** — Bring `docs/gpu-share-preview.html` up to build 0.2 (the build spec v0.3
       describes) by copying it in from the project's Drive folder.
-- [ ] **P1-T10** — Bring the Svelte app's mock layer and screens up to spec v0.3: a queue shared by
+- [x] **P1-T10** — Bring the Svelte app's mock layer and screens up to spec v0.3: a queue shared by
       several friends with "You're 2nd in line" and Cancel on the client, test-bench friends who can
       ask questions, general pause reasons for friends vs. exact ones for the owner, client status
       labels Ready / In use / Paused, and limits shown in tokens with approximate words.
@@ -290,6 +296,22 @@ Goal: friends see and click every screen before anything technical exists, and s
 > session had no way to save it to disk. The file in `docs/` is still build 0.1, and the Svelte
 > port (`P0-T4`) was made from build 0.1, so neither has the multi-friend queue. `P1-T10` should
 > be done from build 0.2 once `P1-T9` lands, not from the spec text alone.
+
+> `P1-T9` `P1-T10` · 2026-10-13 · Claude (Opus 5.5)
+> Build 0.2 was copied in from the project author's Drive (`gpu-share-preview.html`, 81,669
+> bytes, dated 9 October 2026), which supersedes the `P1-T9` note above. The Svelte port now
+> follows it: `src/lib/mock/backend.svelte.ts` is a port of 0.2's queue, bench friends (Tunde,
+> Ada) and general-vs-exact pause reasons. The UI boundary was reshaped while doing this so the
+> real backend can drop in: screens read two view models, `HostView` and `ClientView`
+> (`src/lib/types.ts`), and call `HostBackend` / `ClientBackend`; tab and tray state moved to
+> `src/lib/ui.svelte.ts`. `ClientView.hosts` is a list (the real client sees any number of hosts),
+> and `ClientView.turn` carries queued-with-position / loading / streaming. Preview-only chrome
+> (`Preview.svelte`, `HostMachine`, `ClientMachine`, `Link`, `TestBench`) is the only code that
+> touches the mock's `sim` object. Replies render through `src/lib/markdown.ts`, which escapes
+> everything first (replies come from another machine and land in a webview that can call Tauri
+> commands); `npm test` (vitest) covers it. Checked in headless Chromium: pairing codes match,
+> "You're 2nd in line" + Cancel while Tunde is answered, Blender pauses both sides with the
+> general reason on the client and the exact one on the host, no console errors.
 
 ---
 

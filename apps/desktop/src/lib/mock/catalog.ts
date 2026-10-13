@@ -50,6 +50,4 @@ export function model(id: string | null | undefined): CatalogEntry | undefined {
 	return CATALOG.find((m) => m.id === id);
 }
 
-export function vramFor(m: CatalogEntry, ctx: number): number {
-	return m.fileGB + m.kvGB * (ctx / 4096) + 0.5;
-}
+export { vramFor } from '../format';

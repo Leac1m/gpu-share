@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { hostBackend } from '../mock/backend.svelte';
+	import { hostBackend } from '../backend';
 </script>
 
-{#if hostBackend.host.pending}
-	{@const p = hostBackend.host.pending}
+{#if hostBackend.view.pending}
+	{@const p = hostBackend.view.pending}
 	<div class="modal">
 		<div class="card">
 			<h3>{p.name} wants to use your graphics card</h3>

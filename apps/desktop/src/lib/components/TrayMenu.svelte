@@ -1,14 +1,36 @@
 <script lang="ts">
-	import { hostBackend } from '../mock/backend.svelte';
+	// The preview's stand-in for the Windows tray menu. The real app uses the OS tray.
+	import { hostBackend } from '../backend';
+	import { ui } from '../ui.svelte';
+
+	function close() {
+		ui.trayOpen = false;
+	}
 </script>
 
-{#if hostBackend.host.trayOpen}
+{#if ui.trayOpen}
 	<div class="traymenu">
-		<button onclick={() => hostBackend.trayShare()}>
-			{hostBackend.host.sharing ? 'Stop sharing' : 'Start sharing'}
+		<button
+			onclick={() => {
+				close();
+				hostBackend.setSharing(!hostBackend.view.sharing);
+			}}
+		>
+			{hostBackend.view.sharing ? 'Stop sharing' : 'Start sharing'}
 		</button>
-		<button onclick={() => hostBackend.traySettings()}>Open settings</button>
+		<button
+			onclick={() => {
+				close();
+				ui.hostTab = 'limits';
+				hostBackend.welcomeDone();
+			}}>Open settings</button
+		>
 		<div class="sep"></div>
-		<button onclick={() => hostBackend.trayQuit()}>Quit GPU Share</button>
+		<button
+			onclick={() => {
+				close();
+				hostBackend.quit();
+			}}>Quit GPU Share</button
+		>
 	</div>
 {/if}

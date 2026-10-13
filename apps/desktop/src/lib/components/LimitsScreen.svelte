@@ -1,37 +1,30 @@
 <script lang="ts">
-	import { hostBackend, APPS_ALL } from '../mock/backend.svelte';
-	import { model, vramFor } from '../mock/catalog';
+	import { hostBackend, isPreview } from '../backend';
+	import { approxWords, fmtHour, fmtNum, SUGGESTED_PAUSE_APPS, vramFor } from '../format';
 	import Switch from './Switch.svelte';
 
-	const h = hostBackend.host;
-	const w = hostBackend.world;
+	const h = hostBackend.view;
+	const st = $derived(h.settings);
+	const update = hostBackend.updateSettings;
 
-	const offeredFirst = $derived(model(hostBackend.offeredModels()[0] || 'qwen25-7b')!);
-	const need = $derived(vramFor(offeredFirst, h.ctx));
-	const remainingApps = $derived(APPS_ALL.filter((a) => !h.pauseApps.includes(a)));
+	const current = $derived(
+		h.catalog.find((m) => m.id === hostBackend.offeredModels()[0]) ??
+			h.catalog.find((m) => h.installed.includes(m.id)) ??
+			h.catalog[0]
+	);
+	const need = $derived(current ? vramFor(current, st.ctx) : 0);
+	const kv = $derived(current ? current.kvGB * (st.ctx / 4096) : 0);
+	const vram = $derived(h.card?.vramGB ?? 8);
+	const remainingApps = $derived(
+		[...new Set([...h.runningApps, ...SUGGESTED_PAUSE_APPS])].filter((a) => !st.pauseApps.includes(a))
+	);
 
-	function onBudgetInput(e: Event) {
-		hostBackend.setBudget(parseFloat((e.target as HTMLInputElement).value));
-	}
-	function onAwayInput(e: Event) {
-		hostBackend.setAwayMin(parseFloat((e.target as HTMLInputElement).value));
-	}
-	function onTempInput(e: Event) {
-		hostBackend.setTempPause(parseFloat((e.target as HTMLInputElement).value));
-	}
-	function onCtxChange(e: Event) {
-		hostBackend.setCtx(parseInt((e.target as HTMLSelectElement).value, 10));
-	}
-	function onMaxReplyChange(e: Event) {
-		hostBackend.setMaxReply(parseInt((e.target as HTMLSelectElement).value, 10));
-	}
-	function onHoursModeChange(e: Event) {
-		hostBackend.setHoursMode((e.target as HTMLSelectElement).value as 'any' | 'schedule');
-	}
-	function onAppAddChange(e: Event) {
+	const num = (e: Event) => parseFloat((e.target as HTMLInputElement).value);
+
+	function onAppAdd(e: Event) {
 		const el = e.target as HTMLSelectElement;
 		if (el.value) {
-			hostBackend.addPauseApp(el.value);
+			update({ pauseApps: [...st.pauseApps, el.value] });
 			el.value = '';
 		}
 	}
@@ -47,13 +40,13 @@
 	<div class="txt">
 		<div class="t">Graphics card memory it may use</div>
 		<div class="d">
-			Your card has 8 GB. Your current model needs about {need.toFixed(1)} GB. Leave room for whatever
-			you're working on.
+			Your card has {vram.toFixed(0)} GB. Your current model needs about {need.toFixed(1)} GB. Leave room for
+			whatever you're working on.
 		</div>
 	</div>
 	<div class="ctl">
-		<input type="range" min="2" max="7.5" step="0.5" value={h.budget} oninput={onBudgetInput} />
-		<span class="val mono">{h.budget.toFixed(1)} GB</span>
+		<input type="range" min="2" max={Math.max(2, vram - 0.5)} step="0.5" value={st.budget} oninput={(e) => update({ budget: num(e) })} />
+		<span class="val mono">{st.budget.toFixed(1)} GB</span>
 	</div>
 </div>
 
@@ -61,16 +54,14 @@
 	<div class="txt">
 		<div class="t">How much of a conversation the model remembers</div>
 		<div class="d">
-			Longer conversations use more memory on your card. {h.ctx} words' worth uses about {(
-				offeredFirst.kvGB *
-				(h.ctx / 4096)
-			).toFixed(1)} GB.
+			Measured in tokens, the small pieces of words a model reads. 1,000 tokens is about 750 words.
+			Longer conversations use more memory on your card: {fmtNum(st.ctx)} tokens uses about {kv.toFixed(1)} GB.
 		</div>
 	</div>
 	<div class="ctl">
-		<select onchange={onCtxChange}>
+		<select onchange={(e) => update({ ctx: num(e) })}>
 			{#each [2048, 4096, 8192] as c (c)}
-				<option value={c} selected={c === h.ctx}>{c}</option>
+				<option value={c} selected={c === st.ctx}>{fmtNum(c)} tokens · about {approxWords(c)} words</option>
 			{/each}
 		</select>
 	</div>
@@ -79,12 +70,12 @@
 <div class="row">
 	<div class="txt">
 		<div class="t">Longest answer it will give</div>
-		<div class="d">Stops very long answers from tying up your card.</div>
+		<div class="d">Stops very long answers from tying up your card while other friends wait.</div>
 	</div>
 	<div class="ctl">
-		<select onchange={onMaxReplyChange}>
+		<select onchange={(e) => update({ maxReply: num(e) })}>
 			{#each [512, 1024, 2048] as c (c)}
-				<option value={c} selected={c === h.maxReply}>{c} words</option>
+				<option value={c} selected={c === st.maxReply}>{fmtNum(c)} tokens · about {approxWords(c)} words</option>
 			{/each}
 		</select>
 	</div>
@@ -101,21 +92,22 @@
 		</div>
 	</div>
 	<div class="ctl">
-		<Switch checked={h.pauseWhenInUse} size="sm" onToggle={() => hostBackend.toggleBoolField('pauseWhenInUse')} />
+		<Switch checked={st.pauseWhenInUse} size="sm" onToggle={() => update({ pauseWhenInUse: !st.pauseWhenInUse })} />
 	</div>
 </div>
 
-{#if h.pauseWhenInUse}
+{#if st.pauseWhenInUse}
 	<div class="row">
 		<div class="txt">
 			<div class="t">Wait this long after I stop typing</div>
 			<div class="d">
-				In this preview a minute passes in about a second, so you can watch it count down.
+				{#if isPreview}In this preview a minute passes in about a second, so you can watch it count
+					down.{:else}Sharing starts again once you've been away this long.{/if}
 			</div>
 		</div>
 		<div class="ctl">
-			<input type="range" min="1" max="15" step="1" value={h.awayMin} oninput={onAwayInput} />
-			<span class="val mono">{h.awayMin} min</span>
+			<input type="range" min="1" max="15" step="1" value={st.awayMin} oninput={(e) => update({ awayMin: num(e) })} />
+			<span class="val mono">{st.awayMin} min</span>
 		</div>
 	</div>
 {/if}
@@ -123,16 +115,21 @@
 <div class="row">
 	<div class="txt">
 		<div class="t">Pause when these programs are open</div>
-		<div class="d">Add anything you don't want sharing to interfere with.</div>
+		<div class="d">
+			Add anything you don't want sharing to interfere with. Friends only see that you're busy, never
+			which program.
+		</div>
 		<div class="apps">
-			{#each h.pauseApps as a (a)}
-				<span class="apptag {w.apps.includes(a) ? 'live' : ''}"
-					>{a}<button aria-label={'Remove ' + a} onclick={() => hostBackend.removePauseApp(a)}>×</button
+			{#each st.pauseApps as a (a)}
+				<span class="apptag {h.runningApps.includes(a) ? 'live' : ''}"
+					>{a}<button
+						aria-label={'Remove ' + a}
+						onclick={() => update({ pauseApps: st.pauseApps.filter((x) => x !== a) })}>×</button
 					></span
 				>
 			{/each}
 			{#if remainingApps.length}
-				<select style="font-size:12.5px" onchange={onAppAddChange}>
+				<select style="font-size:12.5px" onchange={onAppAdd}>
 					<option value="">Add a program…</option>
 					{#each remainingApps as a (a)}
 						<option value={a}>{a}</option>
@@ -149,18 +146,25 @@
 		<div class="d">A safety net for programs you haven't listed above.</div>
 	</div>
 	<div class="ctl">
-		<Switch checked={h.pauseOnGpuUse} size="sm" onToggle={() => hostBackend.toggleBoolField('pauseOnGpuUse')} />
+		<Switch checked={st.pauseOnGpuUse} size="sm" onToggle={() => update({ pauseOnGpuUse: !st.pauseOnGpuUse })} />
 	</div>
 </div>
 
 <div class="row">
 	<div class="txt">
 		<div class="t">Pause if the card gets hot</div>
-		<div class="d">Stops at {h.tempPause}°C and waits until it cools to {h.tempResume}°C.</div>
+		<div class="d">Stops at {st.tempPause}°C and waits until it cools to {st.tempResume}°C.</div>
 	</div>
 	<div class="ctl">
-		<input type="range" min="70" max="88" step="1" value={h.tempPause} oninput={onTempInput} />
-		<span class="val mono">{h.tempPause}°C</span>
+		<input
+			type="range"
+			min="70"
+			max="88"
+			step="1"
+			value={st.tempPause}
+			oninput={(e) => update({ tempPause: num(e), tempResume: num(e) - 8 })}
+		/>
+		<span class="val mono">{st.tempPause}°C</span>
 	</div>
 </div>
 
@@ -170,7 +174,7 @@
 		<div class="d">Keeps sharing off your battery.</div>
 	</div>
 	<div class="ctl">
-		<Switch checked={h.pluggedOnly} size="sm" onToggle={() => hostBackend.toggleBoolField('pluggedOnly')} />
+		<Switch checked={st.pluggedOnly} size="sm" onToggle={() => update({ pluggedOnly: !st.pluggedOnly })} />
 	</div>
 </div>
 
@@ -178,19 +182,15 @@
 	<div class="txt">
 		<div class="t">Hours when sharing is allowed</div>
 		<div class="d">
-			{h.hoursMode === 'any'
+			{st.hoursMode === 'any'
 				? 'Any time of day.'
-				: 'Only between ' +
-					hostBackend.fmtHour(h.hoursFrom) +
-					' and ' +
-					hostBackend.fmtHour(h.hoursTo) +
-					'.'}
+				: 'Only between ' + fmtHour(st.hoursFrom) + ' and ' + fmtHour(st.hoursTo) + '.'}
 		</div>
 	</div>
 	<div class="ctl">
-		<select onchange={onHoursModeChange}>
-			<option value="any" selected={h.hoursMode === 'any'}>Any time</option>
-			<option value="schedule" selected={h.hoursMode === 'schedule'}>Evenings and nights</option>
+		<select onchange={(e) => update({ hoursMode: (e.target as HTMLSelectElement).value as 'any' | 'schedule' })}>
+			<option value="any" selected={st.hoursMode === 'any'}>Any time</option>
+			<option value="schedule" selected={st.hoursMode === 'schedule'}>Evenings and nights</option>
 		</select>
 	</div>
 </div>
@@ -198,13 +198,13 @@
 <div class="row">
 	<div class="txt">
 		<div class="t">Keep sharing on after I restart</div>
-		<div class="d">Off means sharing always starts switched off when you turn the laptop on.</div>
+		<div class="d">Off means sharing always starts switched off when you turn the computer on.</div>
 	</div>
 	<div class="ctl">
 		<Switch
-			checked={h.resumeAfterRestart}
+			checked={st.resumeAfterRestart}
 			size="sm"
-			onToggle={() => hostBackend.toggleBoolField('resumeAfterRestart')}
+			onToggle={() => update({ resumeAfterRestart: !st.resumeAfterRestart })}
 		/>
 	</div>
 </div>

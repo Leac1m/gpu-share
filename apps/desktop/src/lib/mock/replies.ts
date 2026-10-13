@@ -11,7 +11,7 @@ const REPLIES: ReplyRule[] = [
 		t: "Hello. I'm running on Dara's RTX A2000 over your home network. Ask me anything you'd normally ask a chat model."
 	},
 	{
-		k: ['gpu', 'graphics', 'vram', 'card'],
+		k: ['gpu', 'graphics', 'vram', 'card', 'memory'],
 		t: "The A2000 has 8 GB of memory, which comfortably holds a 7B model at 4-bit along with the conversation. A 14B model would need roughly 10 GB, so it won't fit on this card. Splitting one model across two computers is possible but slow over a home network, which is why this setup keeps each model on a single machine."
 	},
 	{
@@ -32,7 +32,7 @@ const REPLIES: ReplyRule[] = [
 	}
 ];
 
-const FALLBACK = [
+export const FALLBACK = [
 	"That depends on what you're after. If you tell me a bit more about the situation, I can give you something more specific than a general answer.",
 	"Good question. There isn't one right answer, but the usual approach is to start with the simplest version that works, see where it breaks, and only add complexity when something actually forces you to.",
 	"I'd break that into three parts: what you already know, what you need to find out, and what you can safely ignore for now. Most of the difficulty usually sits in the middle part."
