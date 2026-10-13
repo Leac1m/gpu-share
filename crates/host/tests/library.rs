@@ -225,3 +225,37 @@ async fn a_real_model_downloads_from_hugging_face() {
     let h = host::gguf::read_file(&path).unwrap();
     assert_eq!(h.architecture, "llama");
 }
+
+#[tokio::test]
+async fn first_run_engine_setup_downloads_verifies_and_unpacks() {
+    use std::io::Write;
+    let make = |files: &[(&str, &[u8])]| {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let mut z = zip::ZipWriter::new(&mut buf);
+        for (name, data) in files {
+            z.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            z.write_all(data).unwrap();
+        }
+        z.finish().unwrap();
+        buf.into_inner()
+    };
+    let server_zip = make(&[("llama-server.exe", b"server"), ("llama-server", b"server"), ("ggml-cuda.dll", b"ggml")]);
+    let cudart_zip = make(&[("cudart64_12.dll", b"cudart"), ("cublas64_12.dll", b"cublas")]);
+    let (u1, _) = server(server_zip.clone()).await;
+    let (u2, _) = server(cudart_zip.clone()).await;
+    let file = |url: String, body: &[u8]| host::engine_setup::ManifestFile { url, sha256: hex::encode(Sha256::digest(body)), size: body.len() as u64 };
+    let manifest = host::engine_setup::Manifest { tag: "b1".into(), files: vec![file(u1, &server_zip), file(u2, &cudart_zip)] };
+    let dir = tempfile::tempdir().unwrap();
+    let engine = host::engine_setup::engine_dir(dir.path(), "b1");
+    let last = Mutex::new((0, 0));
+    let bin = host::engine_setup::ensure(&reqwest::Client::new(), &manifest, &engine, plenty, |d, t| *last.lock().unwrap() = (d, t))
+        .await
+        .unwrap();
+    assert_eq!(bin, engine.join(host::engine_setup::binary_name()));
+    assert!(engine.join("cudart64_12.dll").is_file(), "the CUDA runtime sits next to the server");
+    assert!(!engine.join("downloads").exists(), "the archives are cleaned up");
+    let (d, t) = *last.lock().unwrap();
+    assert_eq!((d, t), (manifest.total_bytes(), manifest.total_bytes()));
+    // a second start finds it ready without downloading
+    assert!(host::engine_setup::ensure(&reqwest::Client::new(), &manifest, &engine, plenty, |_, _| panic!("downloaded again")).await.is_ok());
+}

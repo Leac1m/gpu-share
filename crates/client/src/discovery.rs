@@ -78,8 +78,18 @@ impl Discovery {
         let hinter = {
             let me = self.clone();
             tokio::spawn(async move {
+                let mut public = None;
+                let mut n = 0u64;
                 loop {
-                    let hint = if me.rt.hosts().is_empty() { lan::diagnose(&me.observations()).unwrap_or_default() } else { String::new() };
+                    if n.is_multiple_of(15) {
+                        public = tokio::task::spawn_blocking(lan::network_is_public).await.unwrap_or(None);
+                    }
+                    n += 1;
+                    let hint = if me.rt.hosts().is_empty() {
+                        lan::public_network_warning(public).or_else(|| lan::diagnose(&me.observations())).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                     me.rt.set_network_hint(hint);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }

@@ -5,6 +5,7 @@ pub mod awake;
 pub mod clamp;
 pub mod core;
 pub mod engine;
+pub mod engine_setup;
 pub mod gatekeeper;
 pub mod gguf;
 #[cfg(windows)]

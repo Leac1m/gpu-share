@@ -113,6 +113,10 @@ export interface HostView {
 	toasts: Toast[];
 	/** Apps currently running, offered when adding to the pause list. */
 	runningApps: string[];
+	/** Set when the network is configured so friends can't connect (Windows "Public" network). */
+	networkWarning: string | null;
+	/** First-run engine download, while it's in progress. */
+	engineSetup: DownloadProgress | null;
 }
 
 export interface HostBackend {

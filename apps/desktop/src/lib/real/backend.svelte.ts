@@ -48,7 +48,9 @@ function emptyHost(): HostView {
 		installed: [],
 		downloads: {},
 		toasts: [],
-		runningApps: []
+		runningApps: [],
+		networkWarning: null,
+		engineSetup: null
 	};
 }
 

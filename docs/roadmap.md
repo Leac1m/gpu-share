@@ -107,7 +107,7 @@ on real machines.
 | [4](#phase-4--pairing-and-security) | Pairing and security | 7 / 7 | Done |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the rules and measurements on the real laptop are still to do (`P5-T11`, manual checklist) |
 | [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
-| [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 0 / 9 | Not started |
+| [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | Installers built by the Release workflow; the updater, code signing and the pilot are the project author's calls |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
 ---
@@ -623,21 +623,21 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 
 ## Phase 7 — Installers, updates, pilot
 
-- [ ] **P7-T1** — NSIS per-user installer for Windows, adding a firewall rule for private
+- [x] **P7-T1** — NSIS per-user installer for Windows, adding a firewall rule for private
       networks. No separate Tailscale, Python, or CUDA install steps. *(spec §3 R1, §6.10)*
-- [ ] **P7-T2** — First-run check that the Windows network profile is Private, with a plain-
+- [x] **P7-T2** — First-run check that the Windows network profile is Private, with a plain-
       language explanation of how to change it.
-- [ ] **P7-T3** — CUDA runtime downloaded on first run rather than shipped inside the installer
+- [x] **P7-T3** — CUDA runtime downloaded on first run rather than shipped inside the installer
       (several hundred MB).
-- [ ] **P7-T4** — Ubuntu client packages: `.deb` for 22.04 and 24.04 (pulling in WebKitGTK 4.1)
+- [x] **P7-T4** — Ubuntu client packages: `.deb` for 22.04 and 24.04 (pulling in WebKitGTK 4.1)
       and an AppImage. No engine bundled.
-- [ ] **P7-T5** — Tray icon working on both platforms: native on Windows, AppIndicator on Ubuntu.
+- [x] **P7-T5** — Tray icon working on both platforms: native on Windows, AppIndicator on Ubuntu.
 - [ ] **P7-T6** — Tauri auto-updater with signed update packages, so engine security fixes reach
       hosts without them doing anything.
 - [ ] **P7-T7** — Code-signing certificate: cost, timing, and purchase decision. Without one,
       Windows shows "Windows protected your PC" — acceptable for the pilot if the friend is
       warned, not acceptable for wider release. *(spec §9)*
-- [ ] **P7-T8** — Pin the engine version per release and define the test procedure before bumping
+- [x] **P7-T8** — Pin the engine version per release and define the test procedure before bumping
       it. llama.cpp moves quickly.
 - [ ] **P7-T9** — Two-week pilot with the friend, then review the usage counts and his experience.
 
@@ -645,7 +645,42 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 
 ### Notes — Phase 7
 
-_None yet._
+> `P7-T1`…`P7-T8` · 2026-10-13 · Claude (Opus 5.5)
+> * `.github/workflows/release.yml` builds the Windows installer (NSIS, per-user) and the Ubuntu
+>   `.deb` + AppImage (on 22.04, so they run on 24.04 too); on a `v*` tag it also makes a draft
+>   GitHub release. How to use it, and how to bump the engine: `docs/releasing.md`. How to
+>   install and what to check with friends: `docs/pilot.md`.
+> * Firewall (`P7-T1`): a per-user install can't add a firewall rule without an administrator,
+>   so the NSIS post-install hook (`src-tauri/windows/hooks.nsh`) runs `netsh` elevated: one UAC
+>   prompt, a program rule for `gpu-share.exe` on the **private** profile only. Uninstall removes it.
+> * Engine (`P7-T3`): the installer carries `engine-manifest.json`, written by the Release workflow
+>   from the llama.cpp release in `engine-version.txt` (the CUDA 12 build and the matching
+>   `cudart` archive, with sizes and SHA-256s; the checked-in copy is an empty placeholder). On a
+>   Windows machine where NVML sees an NVIDIA card, the app downloads, verifies and unpacks them
+>   into `<app data>/engine/<tag>/` on first run, resumably, and stays paused ("Getting ready")
+>   until that's done. Tested against a local server (`tests/library.rs`); the real GitHub
+>   download can't be tried from a cloud session (release downloads are blocked here).
+> * Share mode appears on Windows when there's an NVIDIA card (or an engine already), and on Linux
+>   only with an engine present (dev). The Linux packages are client-only (spec §6.10).
+> * `P7-T2`: the Windows network-profile check uses the Network List Manager COM API; a Public
+>   network shows a plain-language fix on the Share screen and in a friend's empty device list.
+> * `P7-T4`: the `.deb` was built and installed here, and the installed app started as a friend's
+>   (Use mode only, UI embedded). Its file name has a space (`GPU Share_0.1.0_amd64.deb`), from
+>   the product name. The AppImage step downloads tools from GitHub, so it only runs in CI.
+> * `P7-T5`: tray icon with Start/Stop sharing, Open, Quit. On Windows closing the window hides it
+>   to the tray; on Linux (client only) closing quits, so a desktop without an AppIndicator host
+>   can't lose the app. A pairing request brings the window forward. A second launch focuses the
+>   running copy (single-instance plugin, skipped when `GPU_SHARE_DATA_DIR` is set, which is how
+>   the e2e script runs two copies).
+> * `P7-T8`: the engine version lives in `engine-version.txt` only; `docs/releasing.md` has the
+>   checklist to follow before changing it.
+> * Not done, on purpose: `P7-T6` (auto-updater) is outside D10's proposed first-build cut, and
+>   needs an update-signing key that only the project author should generate and keep
+>   (`npx tauri signer generate`, then the public key in `tauri.conf.json` and the private key as
+>   a repository secret). `P7-T7` is decision D4. `P7-T9` is the pilot itself.
+> * The npm dev tooling had 5 audit findings (vitest, devalue, source-map-js); updating vitest to 5
+>   cleared them. The shipped app's only npm runtime dependency is `@tauri-apps/api`, which must
+>   stay on the same minor version as the `tauri` crate or `tauri build` refuses to run.
 
 ---
 

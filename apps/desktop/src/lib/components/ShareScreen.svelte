@@ -48,6 +48,21 @@
 	<div style="margin-left:auto"><StatusChip state={h.state} /></div>
 </div>
 
+{#if h.engineSetup}
+	<div class="banner info">
+		<div>
+			<b>Getting the AI engine ready</b>A one-time download for your graphics card. Sharing starts once it's
+			done.
+			<div class="progress" style="margin-top:8px"><i style="width:{h.engineSetup.pct}%"></i></div>
+			<div class="meta mono">{h.engineSetup.stage}</div>
+		</div>
+	</div>
+{/if}
+
+{#if h.networkWarning && h.sharing}
+	<div class="banner warn"><div><b>Friends can't reach this computer</b>{h.networkWarning}</div></div>
+{/if}
+
 {#if h.state === 'paused'}
 	<div class="banner warn">
 		<div>

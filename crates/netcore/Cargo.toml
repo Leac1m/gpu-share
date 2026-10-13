@@ -14,6 +14,9 @@ tokio = { workspace = true }
 socket2 = { version = "0.6", features = ["all"] }
 if-addrs = "0.15"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Networking_NetworkListManager", "Win32_System_Com"] }
+
 [dev-dependencies]
 tokio-rustls = { workspace = true }
 tempfile = { workspace = true }

@@ -118,6 +118,50 @@ pub fn ufw_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Whether Windows has a connected network marked Public (`P7-T2`). On Public networks Windows
+/// blocks other computers from reaching this one, so sharing can't work. `None` elsewhere.
+#[cfg(windows)]
+pub fn network_is_public() -> Option<bool> {
+    use windows::Win32::Networking::NetworkListManager::{
+        INetwork, INetworkListManager, NetworkListManager, NLM_ENUM_NETWORK_CONNECTED, NLM_NETWORK_CATEGORY_PUBLIC,
+    };
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let nlm: INetworkListManager = CoCreateInstance(&NetworkListManager, None, CLSCTX_ALL).ok()?;
+        let nets = nlm.GetNetworks(NLM_ENUM_NETWORK_CONNECTED).ok()?;
+        let mut public = false;
+        loop {
+            let mut one: [Option<INetwork>; 1] = [None];
+            let mut fetched = 0u32;
+            if nets.Next(&mut one, Some(&mut fetched)).is_err() || fetched == 0 {
+                break;
+            }
+            if let Some(n) = one[0].take() {
+                if n.GetCategory().ok()? == NLM_NETWORK_CATEGORY_PUBLIC {
+                    public = true;
+                }
+            }
+        }
+        Some(public)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn network_is_public() -> Option<bool> {
+    None
+}
+
+/// The explanation shown when the network is Public.
+pub fn public_network_warning(is_public: Option<bool>) -> Option<String> {
+    (is_public == Some(true)).then(|| {
+        "Windows thinks this network is public, so it keeps other computers out and your friends can't reach this \
+         one. Open Settings, then Network & internet, choose your Wi-Fi or Ethernet network, and set its network \
+         profile type to Private."
+            .to_string()
+    })
+}
+
 /// What discovery has observed, for [`diagnose`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Observations {
@@ -197,6 +241,13 @@ mod tests {
         assert_eq!(ips.len(), 253);
         assert!(!ips.contains(&Ipv4Addr::new(192, 168, 1, 23)));
         assert_eq!(ips[0], Ipv4Addr::new(192, 168, 1, 1));
+    }
+
+    #[test]
+    fn a_public_network_gets_an_explanation_and_nothing_else_does() {
+        assert!(public_network_warning(Some(true)).unwrap().contains("Private"));
+        assert_eq!(public_network_warning(Some(false)), None);
+        assert_eq!(public_network_warning(None), None);
     }
 
     #[test]

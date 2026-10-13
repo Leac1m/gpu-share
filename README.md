@@ -5,6 +5,9 @@ Use a friend's idle graphics card over the home network, safely and on their ter
 - **What this is and why** → [docs/gpu-share-project.md](docs/gpu-share-project.md) — the full spec.
 - **What's done, what's next, and open notes between agents** → [docs/roadmap.md](docs/roadmap.md) — read this before starting any task.
 - **Clickable UI preview** → [docs/gpu-share-preview.html](docs/gpu-share-preview.html) — open directly in a browser, no build needed.
+- **Trying it with friends** → [docs/pilot.md](docs/pilot.md) — installing on the owner's Windows laptop and friends' Ubuntu PCs, and what to check.
+- **Making a release** → [docs/releasing.md](docs/releasing.md) — installers, and how to bump the pinned engine.
+- **What the app can and cannot reach** → [docs/security-review.md](docs/security-review.md).
 
 ## Layout
 

@@ -13,14 +13,15 @@
 # sessions, but `git clone` is, so the engine is built from source.
 set -euo pipefail
 
-# Pinned engine version. Bump only after the procedure in roadmap P7-T8.
-LLAMA_CPP_TAG="b11582"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Pinned engine version, shared with the release workflow. Bump it only by following
+# docs/releasing.md.
+LLAMA_CPP_TAG="$(tr -d '[:space:]' < "$ROOT/engine-version.txt")"
 
 # Smallest instruct model that still chats coherently enough to eyeball.
 DEV_MODEL_URL="https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q8_0.gguf"
 DEV_MODEL_FILE="SmolLM2-135M-Instruct-Q8_0.gguf"
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEV="$ROOT/.dev"
 mkdir -p "$DEV/models"
 

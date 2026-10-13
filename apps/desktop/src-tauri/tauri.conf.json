@@ -17,7 +17,8 @@
         "height": 780,
         "minWidth": 420,
         "minHeight": 520,
-        "resizable": true
+        "resizable": true,
+        "label": "main"
       }
     ],
     "security": {
@@ -26,13 +27,34 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis",
+      "deb",
+      "appimage"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
-  }
+    ],
+    "resources": {
+      "engine-manifest.json": "engine-manifest.json"
+    },
+    "shortDescription": "Use a friend's idle graphics card over the home network",
+    "category": "Utility",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  },
+  "mainBinaryName": "gpu-share"
 }

@@ -21,6 +21,7 @@ pub struct HostRuntime {
     world: Arc<dyn World>,
     policy: Mutex<PolicyState>,
     awake: KeepAwake,
+    ticks: std::sync::atomic::AtomicU64,
 }
 
 impl HostRuntime {
@@ -33,6 +34,7 @@ impl HostRuntime {
             world,
             policy: Mutex::new(PolicyState::default()),
             awake: KeepAwake::new(),
+            ticks: Default::default(),
         })
     }
 
@@ -51,8 +53,15 @@ impl HostRuntime {
         }
         let world = self.world.clone();
         let signals = tokio::task::spawn_blocking(move || world.sample()).await.unwrap_or_default();
-        let gate = policy::decide(&self.core.settings(), &signals, &mut self.policy.lock().unwrap());
+        let mut gate = policy::decide(&self.core.settings(), &signals, &mut self.policy.lock().unwrap());
         self.core.set_signals(signals);
+        if gate == Gate::Open && !self.core.engine_ready() {
+            gate = Gate::Paused {
+                owner: "Getting the AI engine ready (a one-time download)".into(),
+                friend: "Getting ready. Back in a few minutes".into(),
+                countdown: true, // no "paused" toast for this
+            };
+        }
 
         // 2. apply the decision
         if let Gate::Paused { owner, countdown: false, .. } = &gate {
@@ -117,7 +126,13 @@ impl HostRuntime {
             }
         }
 
-        // 5. keep the PC awake only while actually serving (P5-T9)
+        // 5. every half minute: is the network one Windows lets friends reach? (P7-T2)
+        if self.ticks.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(30) {
+            let public = tokio::task::spawn_blocking(netcore::lan::network_is_public).await.unwrap_or(None);
+            self.core.set_network_warning(netcore::lan::public_network_warning(public));
+        }
+
+        // 6. keep the PC awake only while actually serving (P5-T9)
         let serving = self.core.gate() == Gate::Open && (self.core.busy() || self.core.supervisor.status().loaded.is_some());
         self.awake.set(serving);
     }

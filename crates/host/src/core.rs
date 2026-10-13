@@ -109,6 +109,12 @@ pub struct HostCore {
     /// from the files that are on disk.
     catalog: Mutex<Vec<CatalogEntry>>,
     downloads: Mutex<std::collections::HashMap<String, ViewDownload>>,
+    /// Shown on the Share screen when the network is set up so friends can't connect.
+    network_warning: Mutex<Option<String>>,
+    /// First-run engine download (`P7-T3`): `Some` while it's in progress. Until it's done the
+    /// host stays paused.
+    engine_setup: Mutex<Option<ViewDownload>>,
+    engine_ready: std::sync::atomic::AtomicBool,
     /// For model downloads: follows the system proxy, unlike `engine_http`.
     pub download_http: reqwest::Client,
     inner: Mutex<Inner>,
@@ -161,6 +167,9 @@ impl HostCore {
             world: Mutex::new(None),
             catalog: Mutex::new(vec![]),
             downloads: Mutex::new(Default::default()),
+            network_warning: Mutex::new(None),
+            engine_setup: Mutex::new(None),
+            engine_ready: std::sync::atomic::AtomicBool::new(true),
             download_http: reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build().unwrap(),
             cfg,
             identity,
@@ -251,6 +260,20 @@ impl HostCore {
             }
             Err(err) => log::warn!("{id}: {err}"),
         }
+    }
+
+    /// Marks the engine as being set up (`Some`) or ready (`None`).
+    pub fn set_engine_setup(&self, d: Option<ViewDownload>) {
+        self.engine_ready.store(d.is_none(), std::sync::atomic::Ordering::SeqCst);
+        *self.engine_setup.lock().unwrap() = d;
+    }
+
+    pub fn engine_ready(&self) -> bool {
+        self.engine_ready.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn set_network_warning(&self, w: Option<String>) {
+        *self.network_warning.lock().unwrap() = w;
     }
 
     pub fn set_download(&self, id: &str, d: Option<ViewDownload>) {
@@ -532,6 +555,8 @@ impl HostCore {
             (sig.gpu_temp_c, sig.running_apps.clone())
         };
         let pending = self.pairing.pending().map(|p| ViewPending { id: p.device, name: p.name, code: p.code });
+        let network_warning = self.network_warning.lock().unwrap().clone();
+        let engine_setup = self.engine_setup.lock().unwrap().clone();
 
         let mut inner = self.inner.lock().unwrap();
         inner.toasts.retain(|t| t.3.elapsed() < Duration::from_secs(TOAST_SECS));
@@ -585,6 +610,8 @@ impl HostCore {
                 .map(|t| ViewToast { id: format!("t{}", t.0), title: t.1.clone(), body: t.2.clone() })
                 .collect(),
             running_apps,
+            network_warning,
+            engine_setup,
             settings,
         }
     }
@@ -619,6 +646,8 @@ pub struct HostView {
     pub downloads: std::collections::HashMap<String, ViewDownload>,
     pub toasts: Vec<ViewToast>,
     pub running_apps: Vec<String>,
+    pub network_warning: Option<String>,
+    pub engine_setup: Option<ViewDownload>,
 }
 
 #[derive(Debug, Clone, Serialize)]

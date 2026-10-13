@@ -123,7 +123,9 @@ function freshHost(): HostView {
 		installed: ['llama32-3b', 'qwen25-7b'],
 		downloads: {},
 		toasts: [],
-		runningApps: []
+		runningApps: [],
+		networkWarning: null,
+		engineSetup: null
 	};
 }
 

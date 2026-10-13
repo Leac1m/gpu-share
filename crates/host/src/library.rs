@@ -117,12 +117,27 @@ pub enum DownloadError {
     Disk(String),
 }
 
-pub fn part_path(models_dir: &Path, e: &CatalogEntry) -> PathBuf {
-    models_dir.join(format!("{}.part", e.file_name()))
+pub fn part_path(dir: &Path, e: &CatalogEntry) -> PathBuf {
+    dir.join(format!("{}.part", e.file_name()))
 }
 
-/// Downloads `e` into `models_dir`, resuming a `.part` file if there is one. `progress` gets
-/// (bytes done, bytes total). `free` reports free disk space (injected for tests).
+/// One file to fetch and verify.
+#[derive(Debug, Clone)]
+pub struct FileSpec {
+    pub url: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    /// Final name inside the destination folder.
+    pub file_name: String,
+}
+
+impl From<&CatalogEntry> for FileSpec {
+    fn from(e: &CatalogEntry) -> Self {
+        Self { url: e.file_url.clone(), sha256: e.sha256.clone(), size_bytes: e.size_bytes, file_name: e.file_name() }
+    }
+}
+
+/// Downloads a catalog model into `models_dir`. See [`download_file`].
 pub async fn download(
     http: &reqwest::Client,
     e: &CatalogEntry,
@@ -130,12 +145,24 @@ pub async fn download(
     free: impl Fn(&Path) -> Option<u64>,
     progress: impl Fn(u64, u64),
 ) -> Result<PathBuf, DownloadError> {
-    std::fs::create_dir_all(models_dir).map_err(|err| DownloadError::Disk(err.to_string()))?;
-    let part = part_path(models_dir, e);
-    let fin = models_dir.join(e.file_name());
-    let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0).min(e.size_bytes);
-    let need = e.size_bytes - have;
-    if let Some(free) = free(models_dir) {
+    download_file(http, &FileSpec::from(e), models_dir, free, progress).await
+}
+
+/// Downloads `f` into `dir`, resuming a `.part` file if there is one. `progress` gets
+/// (bytes done, bytes total). `free` reports free disk space (injected for tests).
+pub async fn download_file(
+    http: &reqwest::Client,
+    f: &FileSpec,
+    dir: &Path,
+    free: impl Fn(&Path) -> Option<u64>,
+    progress: impl Fn(u64, u64),
+) -> Result<PathBuf, DownloadError> {
+    std::fs::create_dir_all(dir).map_err(|err| DownloadError::Disk(err.to_string()))?;
+    let part = dir.join(format!("{}.part", f.file_name));
+    let fin = dir.join(&f.file_name);
+    let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0).min(f.size_bytes);
+    let need = f.size_bytes - have;
+    if let Some(free) = free(dir) {
         if free < need + DISK_MARGIN {
             return Err(DownloadError::NoSpace {
                 need_gb: (need + DISK_MARGIN) as f64 / 1e9,
@@ -150,7 +177,7 @@ pub async fn download(
         std::io::copy(&mut (&mut f).take(have), &mut HashWriter(&mut hasher)).map_err(|err| DownloadError::Disk(err.to_string()))?;
     }
     let mut done = have;
-    let mut req = http.get(&e.file_url);
+    let mut req = http.get(&f.url);
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
@@ -175,24 +202,24 @@ pub async fn download(
     let mut last = Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|err| DownloadError::Network(err.to_string()))?;
-        if done + chunk.len() as u64 > e.size_bytes {
+        if done + chunk.len() as u64 > f.size_bytes {
             return Err(DownloadError::Network("the server sent more than expected".into()));
         }
         file.write_all(&chunk).map_err(|err| DownloadError::Disk(err.to_string()))?;
         hasher.update(&chunk);
         done += chunk.len() as u64;
         if last.elapsed() > Duration::from_millis(250) {
-            progress(done, e.size_bytes);
+            progress(done, f.size_bytes);
             last = Instant::now();
         }
     }
     file.flush().map_err(|err| DownloadError::Disk(err.to_string()))?;
     drop(file);
-    if done != e.size_bytes {
-        return Err(DownloadError::Network(format!("stopped at {done} of {} bytes", e.size_bytes)));
+    if done != f.size_bytes {
+        return Err(DownloadError::Network(format!("stopped at {done} of {} bytes", f.size_bytes)));
     }
-    progress(done, e.size_bytes);
-    if hex::encode(hasher.finalize()) != e.sha256.to_ascii_lowercase() {
+    progress(done, f.size_bytes);
+    if hex::encode(hasher.finalize()) != f.sha256.to_ascii_lowercase() {
         let _ = std::fs::remove_file(&part);
         return Err(DownloadError::Checksum);
     }
