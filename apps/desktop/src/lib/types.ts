@@ -179,6 +179,8 @@ export interface ClientView {
 	turn: Turn | null;
 	/** Plain-language explanation when discovery looks blocked (client isolation etc.). */
 	networkHint: string;
+	/** A one-off message for the Computers screen, e.g. the owner turned a pairing request down. */
+	notice: string;
 }
 
 export interface ClientBackend {

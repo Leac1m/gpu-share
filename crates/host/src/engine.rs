@@ -194,8 +194,9 @@ impl Supervisor {
         let expected = Duration::from_secs_f64(1.0 + spec.size_bytes as f64 / LOAD_BYTES_PER_SEC);
         loop {
             if let Ok(Some(status)) = child.try_wait() {
-                let tail = self.recent_log().last().cloned().unwrap_or_default();
-                return Err(EngineError::Exited(format!("{status}; {tail}")));
+                // Only the exit status: the engine's own output stays in memory (`recent_log`),
+                // because errors get logged to disk and output can echo prompt text.
+                return Err(EngineError::Exited(status.to_string()));
             }
             if started.elapsed() > self.cfg.start_timeout {
                 let _ = child.kill().await;

@@ -119,6 +119,7 @@ impl AppState {
                     name,
                     os,
                     app_version: env!("CARGO_PKG_VERSION").into(),
+                    port,
                     card: None,
                     engine: EngineConfig {
                         binary,

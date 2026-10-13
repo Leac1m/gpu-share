@@ -35,6 +35,10 @@ use crate::store::{Device, Usage};
 /// Requests larger than this are refused before parsing.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Request headers must arrive within this (slow-header attacks).
+const HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+/// Open connections at once. A home has a handful of friends; anything beyond this is refused.
+pub const MAX_CONNECTIONS: usize = 64;
 
 /// Who is on the other end of a connection.
 #[derive(Debug, Clone)]
@@ -66,6 +70,10 @@ impl Gatekeeper {
                     _ = stop.changed() => break,
                     accepted = listener.accept() => {
                         let Ok((tcp, addr)) = accepted else { continue };
+                        if conns.len() >= MAX_CONNECTIONS {
+                            drop(tcp);
+                            continue;
+                        }
                         let acceptor = acceptor.clone();
                         let app = app.clone();
                         conns.spawn(async move {
@@ -81,6 +89,8 @@ impl Gatekeeper {
                                 app.clone().oneshot(req.map(Body::new))
                             });
                             let _ = hyper::server::conn::http1::Builder::new()
+                                .timer(hyper_util::rt::TokioTimer::new())
+                                .header_read_timeout(HEADER_TIMEOUT)
                                 .serve_connection(TokioIo::new(tls), svc)
                                 .await;
                         });

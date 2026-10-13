@@ -2,7 +2,7 @@
 	// The installed app: one window, Share mode (if this computer can share) and Use mode.
 	import { capability, connect } from './lib/real/backend.svelte';
 	import { ui, type ClientTab, type HostTab } from './lib/ui.svelte';
-	import { hostBackend } from './lib/backend';
+	import { clientBackend, hostBackend } from './lib/backend';
 	import HostScreens from './lib/components/HostScreens.svelte';
 	import DevicesScreen from './lib/components/DevicesScreen.svelte';
 	import ChatScreen from './lib/components/ChatScreen.svelte';
@@ -10,6 +10,14 @@
 	import PairModal from './lib/components/PairModal.svelte';
 
 	connect();
+
+	// when pairing succeeds the runtime opens the chat; follow it to the Chat tab
+	let wasPairing = false;
+	$effect(() => {
+		const pairing = !!clientBackend.view.pairing;
+		if (wasPairing && !pairing && clientBackend.view.chatHost) ui.clientTab = 'chat';
+		wasPairing = pairing;
+	});
 
 	let theme = $state<'light' | 'dark'>(window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 	$effect(() => {

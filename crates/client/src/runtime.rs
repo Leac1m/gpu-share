@@ -56,6 +56,8 @@ struct State {
     partial: Option<String>,
     task: Option<tokio::task::JoinHandle<()>>,
     network_hint: String,
+    /// A one-off message for the Computers screen ("The owner said not now.").
+    notice: String,
 }
 
 pub struct ClientRuntime {
@@ -144,6 +146,45 @@ impl ClientRuntime {
 
     pub fn pairing(&self) -> Option<(String, String)> {
         self.state.lock().unwrap().pairing.clone()
+    }
+
+    pub fn set_notice(&self, text: impl Into<String>) {
+        self.state.lock().unwrap().notice = text.into();
+    }
+
+    /// "Ask to connect" (`P4-T3`): shows the code at once and waits for the owner. The code is
+    /// computed here from the fingerprint we pinned, our own and a fresh nonce; the host computes
+    /// it from what it sees, so the two only match without a man in the middle.
+    pub fn ask_connect(self: &Arc<Self>, host_id: &str) {
+        let Some(host) = self.hosts().into_iter().find(|h| h.info.id == host_id) else { return };
+        let nonce = crate::api::new_nonce();
+        let code = protocol::pairing::pairing_code(host_id, self.identity.fingerprint(), &nonce);
+        {
+            let mut st = self.state.lock().unwrap();
+            if st.pairing.is_some() {
+                return;
+            }
+            st.pairing = Some((host_id.to_string(), code));
+            st.notice.clear();
+        }
+        let me = self.clone();
+        tokio::spawn(async move {
+            let req = protocol::pairing::PairRequest { protocol: protocol::PROTOCOL_VERSION.into(), name: me.name.clone(), nonce };
+            let result = async { me.api(&host.info.id, host.address)?.pair(&req).await }.await;
+            match result {
+                Ok(resp) => {
+                    me.save_pairing(&host, resp.token);
+                    me.refresh().await; // fetch the model list now
+                    me.open_chat(&host.info.id);
+                }
+                Err(e) => me.set_notice(match e.api_kind() {
+                    Some(_) => e.to_string(),
+                    None => format!("Couldn't reach {}. Try again.", host.info.name),
+                }),
+            }
+            // last, so the screen sees the chat open by the time the code disappears
+            me.set_pairing(None);
+        });
     }
 
     pub fn open_chat(&self, host_id: &str) {
@@ -321,8 +362,9 @@ impl ClientRuntime {
                             list.data.into_iter().map(|m| RemoteModel { name: if m.name.is_empty() { m.id.clone() } else { m.name }, id: m.id }).collect(),
                         ),
                         Err(e) if e.api_kind() == Some(ErrorKind::Unauthorized) => {
-                            // the owner removed us
-                            let _ = me.history.forget_host(&id);
+                            // the owner removed us; keep our own copy of the conversation
+                            let _ = me.history.unpair_host(&id);
+                            me.set_models(&id, vec![]);
                         }
                         Err(_) => {}
                     }
@@ -417,6 +459,7 @@ impl ClientRuntime {
             msgs,
             turn: st.turn.clone(),
             network_hint: st.network_hint.clone(),
+            notice: st.notice.clone(),
         }
     }
 }
@@ -432,6 +475,7 @@ pub struct ClientView {
     pub msgs: Vec<ViewMessage>,
     pub turn: Option<Turn>,
     pub network_hint: String,
+    pub notice: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

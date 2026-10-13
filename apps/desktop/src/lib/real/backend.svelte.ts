@@ -60,7 +60,8 @@ const client = $state<ClientView>({
 	model: '',
 	msgs: [],
 	turn: null,
-	networkHint: ''
+	networkHint: '',
+	notice: ''
 });
 /** Whether this computer can share (an engine was found). */
 export const capability = $state({ canShare: false, ready: false });

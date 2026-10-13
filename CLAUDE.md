@@ -32,6 +32,7 @@ npm run build
 scripts/dev-engine.sh                                         # CPU llama-server + tiny model in .dev/
 cargo test -p host --test real_engine -- --ignored            # chat through the real engine
 cargo check --workspace --target x86_64-pc-windows-gnu        # Windows shims (needs mingw-w64)
+scripts/e2e/run.sh eth0                                       # two real apps, pair + chat (WebDriver)
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check on Windows.

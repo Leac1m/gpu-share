@@ -141,6 +141,10 @@ pub enum ErrorKind {
     InvalidRequest,
     /// The engine failed to start or crashed.
     EngineFailed,
+    /// Pairing: the owner is answering another request.
+    Busy,
+    /// Pairing: the owner said no (or didn't answer).
+    Denied,
 }
 
 impl ApiError {

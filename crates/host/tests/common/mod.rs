@@ -65,6 +65,7 @@ pub async fn start_host_with(
         name: "Test host".into(),
         os: protocol::discovery::Os::Linux,
         app_version: "0.0.0-test".into(),
+        port: protocol::GATEKEEPER_PORT,
         card: None,
         engine: EngineConfig {
             binary,

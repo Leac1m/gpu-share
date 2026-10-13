@@ -124,6 +124,12 @@ impl History {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// The host no longer accepts us: drop the token, keep the conversation.
+    pub fn unpair_host(&self, id: &str) -> Result<(), HistoryError> {
+        self.db.lock().unwrap().execute("DELETE FROM hosts WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn forget_host(&self, id: &str) -> Result<(), HistoryError> {
         let db = self.db.lock().unwrap();
         db.execute("DELETE FROM hosts WHERE id = ?1", params![id])?;

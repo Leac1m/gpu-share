@@ -60,6 +60,20 @@ pub fn client_config(identity: &Identity, pin: ServerPin) -> Result<ClientConfig
     Ok(cfg)
 }
 
+/// A client config with no certificate of its own: what a device that isn't GPU Share (or a
+/// curious script) looks like to the gatekeeper. Used by tests.
+pub fn anonymous_client_config(pin: ServerPin) -> Result<ClientConfig, rustls::Error> {
+    let p = provider();
+    let verifier = Arc::new(PinnedServer { pin, algs: p.signature_verification_algorithms });
+    let mut cfg = ClientConfig::builder_with_provider(p)
+        .with_safe_default_protocol_versions()?
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_no_client_auth();
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(cfg)
+}
+
 #[derive(Debug)]
 struct PinnedServer {
     pin: ServerPin,

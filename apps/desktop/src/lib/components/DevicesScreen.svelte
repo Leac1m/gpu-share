@@ -89,6 +89,9 @@
 			</div>
 		</div>
 	{/each}
+	{#if c.notice}
+		<div class="banner warn"><div>{c.notice}</div></div>
+	{/if}
 	{#if c.pairing && pairingHost}
 		<div class="banner info">
 			<div>

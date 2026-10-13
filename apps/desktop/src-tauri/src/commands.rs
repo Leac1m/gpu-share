@@ -1,5 +1,8 @@
 //! Tauri commands: the actions in `HostBackend` / `ClientBackend` (src/lib/types.ts).
 //! Views are pushed as events; these only change things.
+//!
+//! Plain `fn` commands run on the main thread, outside the async runtime, so any command that
+//! starts background work (anything that calls `tokio::spawn`) must be `async fn`.
 
 use std::sync::Arc;
 
@@ -86,21 +89,19 @@ pub fn host_model_remove(s: S, id: String) -> R {
 
 #[tauri::command]
 pub fn host_unpair(s: S, id: String) -> R {
-    let h = host(&s)?;
-    h.core.store.unpair(&id).map_err(|e| e.to_string())?;
-    h.core.drop_device(&id);
+    host(&s)?.core.unpair(&id);
     Ok(())
 }
 
 #[tauri::command]
 pub fn host_pair_allow(s: S) -> R {
-    host(&s)?;
+    host(&s)?.core.pairing.decide(true);
     Ok(())
 }
 
 #[tauri::command]
 pub fn host_pair_deny(s: S) -> R {
-    host(&s)?;
+    host(&s)?.core.pairing.decide(false);
     Ok(())
 }
 
@@ -123,8 +124,8 @@ pub fn client_view(s: S) -> client::runtime::ClientView {
 
 #[tauri::command]
 pub async fn client_ask_connect(s: S<'_>, host_id: String) -> R {
-    let _ = (s, host_id);
-    Err("Pairing arrives in a later build.".into())
+    s.client.ask_connect(&host_id);
+    Ok(())
 }
 
 /// Resolves to an error message, or null when the host was found.
@@ -147,8 +148,9 @@ pub fn client_open_chat(s: S, host_id: String) {
 }
 
 #[tauri::command]
-pub fn client_send(s: S, text: String) {
+pub async fn client_send(s: S<'_>, text: String) -> R {
     s.client.send(&text);
+    Ok(())
 }
 
 #[tauri::command]

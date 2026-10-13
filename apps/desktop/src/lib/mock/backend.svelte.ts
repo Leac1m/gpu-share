@@ -139,7 +139,8 @@ function freshClient(): ClientView {
 		model: 'qwen25-7b',
 		msgs: [],
 		turn: null,
-		networkHint: ''
+		networkHint: '',
+		notice: ''
 	};
 }
 

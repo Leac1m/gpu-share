@@ -30,6 +30,8 @@ pub struct HostConfig {
     pub name: String,
     pub os: Os,
     pub app_version: String,
+    /// The gatekeeper's port, as announced.
+    pub port: u16,
     pub card: Option<Card>,
     pub engine: EngineConfig,
     pub catalog: Vec<CatalogEntry>,
@@ -97,6 +99,7 @@ pub struct HostCore {
     pub identity: netcore::Identity,
     pub store: Store,
     pub supervisor: Supervisor,
+    pub pairing: crate::pairing::Pairing,
     inner: Mutex<Inner>,
     settings_path: PathBuf,
     /// For the gatekeeper's engine requests: no proxy, no timeout (replies stream for a while).
@@ -141,6 +144,7 @@ impl HostCore {
         let gate = if settings.sharing { Gate::Open } else { Gate::Off };
         Ok(Arc::new(Self {
             supervisor: Supervisor::new(cfg.engine.clone()),
+            pairing: Default::default(),
             cfg,
             identity,
             store,
@@ -304,6 +308,14 @@ impl HostCore {
         }
     }
 
+    /// The owner's Remove button (`P4-T5`): revokes the device and turns away its requests.
+    pub fn unpair(&self, device: &str) {
+        if let Err(e) = self.store.unpair(device) {
+            log::error!("could not remove a device: {e}");
+        }
+        self.drop_device(device);
+    }
+
     /// Turns away a removed device's requests.
     pub fn drop_device(&self, device: &str) {
         let mut inner = self.inner.lock().unwrap();
@@ -367,7 +379,7 @@ impl HostCore {
             modes: vec![Mode::Share, Mode::Use],
             reason: status.as_ref().and_then(|s| s.1.clone()),
             status: status.map(|s| s.0),
-            port: protocol::GATEKEEPER_PORT,
+            port: self.cfg.port,
             announce,
             gpu: self.cfg.card.as_ref().map(|c| c.name.clone()),
         }
@@ -431,7 +443,7 @@ impl HostCore {
                     )
                 })
                 .collect(),
-            pending: None,
+            pending: self.pairing.pending().map(|p| ViewPending { id: p.device, name: p.name, code: p.code }),
             catalog: catalog.iter().map(ViewModel::from_entry).collect(),
             installed,
             downloads: Default::default(),

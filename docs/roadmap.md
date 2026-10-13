@@ -101,9 +101,9 @@ on real machines.
 |---|---|---|---|
 | [0](#phase-0--foundations) | Foundations and decisions | 6 / 6 | Done |
 | [1](#phase-1--clickable-prototype) | Clickable prototype | 5 / 10 | Build 0.2 in the repo and the Svelte app; feedback not yet gathered |
-| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done (GUI pairing arrives with Phase 4) |
+| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done |
 | [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Built and tested on one machine; the real home network check is still to do |
-| [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
+| [4](#phase-4--pairing-and-security) | Pairing and security | 7 / 7 | Done |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
 | [6](#phase-6--model-library) | Model library | 0 / 8 | Not started |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 0 / 9 | Not started |
@@ -458,23 +458,45 @@ LocalSend-style announcement on the LAN, with fallbacks for routers that misbeha
 
 Being on the same Wi-Fi must not be enough to use someone's GPU.
 
-- [ ] **P4-T1** — Per-install key pair and self-signed certificate (rcgen). The certificate's
+- [x] **P4-T1** — Per-install key pair and self-signed certificate (rcgen). The certificate's
       SHA-256 fingerprint is the device's permanent ID. *(spec §6.7)*
-- [ ] **P4-T2** — Certificate pinning in both directions after pairing.
-- [ ] **P4-T3** — `POST /api/pair` plus the owner-facing popup with a matching 6-digit code on
+- [x] **P4-T2** — Certificate pinning in both directions after pairing.
+- [x] **P4-T3** — `POST /api/pair` plus the owner-facing popup with a matching 6-digit code on
       both screens. Nothing is granted until the owner clicks Allow.
-- [ ] **P4-T4** — Device tokens issued on approval and stored in SQLite on the host.
-- [ ] **P4-T5** — Paired devices list with a Remove button per device.
-- [ ] **P4-T6** — Verify unpaired devices can read name, status and protocol version and nothing
+- [x] **P4-T4** — Device tokens issued on approval and stored in SQLite on the host.
+- [x] **P4-T5** — Paired devices list with a Remove button per device.
+- [x] **P4-T6** — Verify unpaired devices can read name, status and protocol version and nothing
       else: `/v1/models` and `/v1/chat/completions` must reject them.
-- [ ] **P4-T7** — Security review of the gatekeeper's exposed surface against the claims in spec
+- [x] **P4-T7** — Security review of the gatekeeper's exposed surface against the claims in spec
       §7. Every "cannot" in that table needs a test or a structural argument.
 
 **Done when:** only paired devices can chat.
 
 ### Notes — Phase 4
 
-_None yet._
+> `P4-T1`…`P4-T7` · 2026-10-13 · Claude (Opus 5.5)
+> * The 6-digit code is **derived**, not chosen: `protocol::pairing::pairing_code(host fingerprint,
+>   client fingerprint, client nonce)`, each side using the fingerprints it actually sees on the
+>   TLS connection. A TLS-terminating proxy makes the two screens differ; `tests/pairing.rs`
+>   proves it with a real proxy. The golden value is pinned in a unit test: changing the formula
+>   makes old and new installs show different codes.
+> * `POST /api/pair` holds the request open until the owner answers (120 s limit), then returns
+>   the device token. One popup at a time; a device turned away waits 60 s. The popup clears if
+>   the friend gives up.
+> * When the owner removes a device, the friend's next poll gets 401 and drops the token but
+>   keeps its own chat history (`History::unpair_host`). "Forget" on the friend's side deletes both.
+> * `docs/security-review.md` is the `P4-T7` review: each spec §7 "cannot" mapped to a test or a
+>   structural argument, plus DoS mitigations and the residual risks accepted for the pilot.
+>   Two fixes came out of it: engine start errors no longer carry the engine's last output line
+>   (errors are logged to disk), and the gatekeeper now caps connections at 64 and times out
+>   request headers after 10 s.
+> * **End-to-end check of the real app**: `scripts/e2e/run.sh eth0` starts two app instances
+>   (owner and friend) under Xvfb, driven by WebDriver (`tauri-driver` + `WebKitWebDriver`). It
+>   passed here: multicast discovery, matching codes, Allow, a real SmolLM2 reply in the chat,
+>   "1 question answered" on the owner's screen with no question text, and the host vanishing
+>   from the friend's list when switched off. It found one real bug on its first run: plain
+>   (non-async) Tauri commands run on the main thread with no tokio runtime, so any command that
+>   spawns work must be `async fn` (noted in `src-tauri/src/commands.rs`).
 
 ---
 
