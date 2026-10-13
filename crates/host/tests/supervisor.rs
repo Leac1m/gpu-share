@@ -56,6 +56,35 @@ async fn starts_on_localhost_with_a_fresh_key_and_reports_progress() {
 }
 
 #[tokio::test]
+async fn a_port_taken_between_choosing_and_binding_is_retried_on_another() {
+    // free_port() lets go of the port before the engine binds it, so something else can grab it
+    let dir = tempfile::tempdir().unwrap();
+    let flag = dir.path().join("taken");
+    let sup = supervisor(&[("FAKE_PORT_TAKEN_ONCE", flag.to_str().unwrap())]);
+    let h = sup.ensure(&spec("a"), |_| {}).await.unwrap();
+    assert!(flag.exists(), "the first attempt hit the taken port");
+    let ports: Vec<_> = sup.recent_log().iter().filter_map(|l| l.split("--port ").nth(1).map(|p| p.split(' ').next().unwrap().to_string())).collect();
+    assert_eq!(ports.len(), 2, "{:?}", sup.recent_log());
+    assert!(h.base_url.ends_with(&ports[1]), "the handle points at the second attempt's port");
+    assert_eq!(sup.status().error, None);
+    sup.stop().await;
+}
+
+#[tokio::test]
+async fn an_engine_that_always_exits_fails_after_a_few_tries() {
+    let sup = Supervisor::new(EngineConfig {
+        binary: PathBuf::from("/bin/false"),
+        extra_args: vec![],
+        start_timeout: Duration::from_secs(10),
+        memory_cap: None,
+        env: vec![],
+    });
+    let started = std::time::Instant::now();
+    assert!(matches!(sup.ensure(&spec("a"), |_| {}).await, Err(EngineError::Exited(_))));
+    assert!(started.elapsed() < Duration::from_secs(3), "gives up quickly");
+}
+
+#[tokio::test]
 async fn same_model_reuses_the_process_and_a_new_model_replaces_it() {
     let sup = supervisor(&[]);
     sup.ensure(&spec("a"), |_| {}).await.unwrap();

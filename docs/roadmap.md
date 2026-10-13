@@ -687,6 +687,11 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 >   needs an update-signing key that only the project author should generate and keep
 >   (`npx tauri signer generate`, then the public key in `tauri.conf.json` and the private key as
 >   a repository secret). `P7-T7` is decision D4. `P7-T9` is the pilot itself.
+> * CI caught an intermittent supervisor test failure: `free_port()` releases the port before the
+>   engine binds it, so something else can take it in between, and the engine exits. The real
+>   `llama-server` would do the same on the owner's laptop. The supervisor now retries on a fresh
+>   port (3 attempts, only when the engine exits while starting), with a test that makes the
+>   first launch hit a taken port.
 > * The npm dev tooling had 5 audit findings (vitest, devalue, source-map-js); updating vitest to 5
 >   cleared them. The shipped app's only npm runtime dependency is `@tauri-apps/api`, which must
 >   stay on the same minor version as the `tauri` crate or `tauri build` refuses to run.

@@ -7,6 +7,8 @@
 //! * `FAKE_TOKEN_MS` — delay between words (default 20)
 //! * a user message containing `CRASH` makes the process exit with status 3
 //! * a missing or wrong `--api-key` bearer gets 401, like the real server
+//! * `FAKE_PORT_TAKEN_ONCE=<file>` — if the file doesn't exist yet, create it and exit with status
+//!   1 as if the port were taken (the real server's behaviour when it can't bind)
 
 use std::convert::Infallible;
 use std::time::{Duration, Instant};
@@ -47,11 +49,23 @@ async fn main() {
         token_ms: env_ms("FAKE_TOKEN_MS", 20),
     };
     println!("fake llama-server on {host}:{port}, args: {}", args[1..].join(" "));
+    if let Some(flag) = std::env::var_os("FAKE_PORT_TAKEN_ONCE") {
+        if std::fs::OpenOptions::new().write(true).create_new(true).open(&flag).is_ok() {
+            eprintln!("couldn't bind HTTP server socket, hostname: {host}, port: {port}");
+            std::process::exit(1);
+        }
+    }
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/chat/completions", post(chat))
         .with_state(cfg);
-    let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind((host.as_str(), port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("couldn't bind HTTP server socket, hostname: {host}, port: {port}: {e}");
+            std::process::exit(1);
+        }
+    };
     axum::serve(listener, app).await.unwrap();
 }
 

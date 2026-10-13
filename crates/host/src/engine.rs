@@ -160,7 +160,24 @@ impl Supervisor {
         }
     }
 
+    /// Starts the engine, trying again on a fresh port if it exits before it's ready:
+    /// [`free_port`] has to let go of the port before the engine binds it, so another program can
+    /// take it in between. An engine that keeps exiting (a broken model file) fails after
+    /// [`START_ATTEMPTS`] quick tries.
     async fn start(&self, spec: &ModelSpec, progress: &impl Fn(u8)) -> Result<Running, EngineError> {
+        let mut attempt = 1;
+        loop {
+            match self.start_once(spec, progress).await {
+                Err(EngineError::Exited(status)) if attempt < START_ATTEMPTS => {
+                    log::warn!("engine exited while starting ({status}), trying again on another port");
+                    attempt += 1;
+                }
+                r => return r,
+            }
+        }
+    }
+
+    async fn start_once(&self, spec: &ModelSpec, progress: &impl Fn(u8)) -> Result<Running, EngineError> {
         let port = free_port().map_err(|e| EngineError::Spawn(e.to_string()))?;
         let api_key = random_key();
         let mut cmd = Command::new(&self.cfg.binary);
@@ -284,6 +301,8 @@ impl Supervisor {
         self.running.lock().await.as_ref().and_then(|r| r.child.id())
     }
 }
+
+const START_ATTEMPTS: u32 = 3;
 
 fn free_port() -> std::io::Result<u16> {
     Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
