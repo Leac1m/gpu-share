@@ -1,6 +1,16 @@
 //! LAN discovery messages. See spec §6.6 and roadmap Phase 3.
 
+use std::net::Ipv4Addr;
+
 use serde::{Deserialize, Serialize};
+
+/// Multicast group for announcements (roadmap D7): organization-local scope (RFC 2365), so it
+/// never collides with LocalSend's `224.0.0.167:53317`.
+pub const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(239, 192, 152, 143);
+pub const MULTICAST_PORT: u16 = 53737;
+/// Hosts re-announce this often; clients drop a host after three missed heartbeats (spec §6.6).
+pub const HEARTBEAT_SECS: u64 = 15;
+pub const MISSED_HEARTBEATS: u64 = 3;
 
 /// The modes an install can offer. A machine with a supported NVIDIA GPU can
 /// offer both; every install offers at least `Use`. See spec §6.1.
@@ -52,6 +62,14 @@ pub struct Announcement {
     pub status: Option<ShareStatus>,
     pub port: u16,
     pub announce: bool,
+    /// The general reason a paused host gives friends ("He's using his computer"). Never names
+    /// the owner's programs (spec §6.3). Absent unless `status` is `paused`. Added after the
+    /// spec example, so older installs simply ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Display name of the host's GPU ("RTX A2000 8 GB"), Share mode only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<String>,
 }
 
 #[cfg(test)]
@@ -74,6 +92,20 @@ mod tests {
         assert_eq!(a.modes, vec![Mode::Share, Mode::Use]);
         assert_eq!(a.status, Some(ShareStatus::Available));
         assert!(a.announce);
+        assert_eq!(a.reason, None, "the spec example has no reason field and must still parse");
+    }
+
+    #[test]
+    fn a_paused_host_carries_a_general_reason() {
+        let a: Announcement =
+            serde_json::from_str(include_str!("../tests/fixtures/announcement_paused.json")).unwrap();
+        assert_eq!(a.status, Some(ShareStatus::Paused));
+        assert_eq!(a.reason.as_deref(), Some("They're using their computer"));
+        assert_eq!(a.gpu.as_deref(), Some("RTX A2000 8 GB"));
+        let back = serde_json::to_value(&a).unwrap();
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/announcement_paused.json")).unwrap();
+        assert_eq!(back, golden);
     }
 
     #[test]

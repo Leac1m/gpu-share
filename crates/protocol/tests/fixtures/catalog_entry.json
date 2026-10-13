@@ -1,0 +1,11 @@
+{
+  "id": "example-8b-q4km",
+  "name": "Example 8B (balanced)",
+  "description": "Good general chat model. Fits 8 GB cards.",
+  "file_url": "https://huggingface.co/<org>/<repo>/resolve/main/<file>.gguf",
+  "size_bytes": 4920000000,
+  "sha256": "<hash>",
+  "quantization": "Q4_K_M",
+  "license": "<license name and link>",
+  "default_context": 4096
+}

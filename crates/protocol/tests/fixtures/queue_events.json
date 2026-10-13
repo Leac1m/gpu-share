@@ -1,0 +1,6 @@
+[
+  { "type": "queued", "position": 2 },
+  { "type": "loading", "model": "qwen3-8b-q4km", "pct": 40 },
+  { "type": "started" },
+  { "type": "stopped", "reason": "They're using their computer" }
+]

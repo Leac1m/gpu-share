@@ -1,5 +1,11 @@
 <script lang="ts">
+	import { isPreview } from './lib/backend';
 	import Preview from './Preview.svelte';
+	import RealApp from './RealApp.svelte';
 </script>
 
-<Preview />
+{#if isPreview}
+	<Preview />
+{:else}
+	<RealApp />
+{/if}

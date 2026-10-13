@@ -1,0 +1,49 @@
+[package]
+name = "host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Share mode: policy loop, engine supervisor, request queue and the gatekeeper."
+
+[dependencies]
+protocol = { workspace = true }
+netcore = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+futures-util = { workspace = true }
+bytes = { workspace = true }
+axum = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_Security",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }
+client = { workspace = true }
+
+
+# A stand-in for llama-server, for the supervisor and gatekeeper tests (roadmap suite 9).
+[[bin]]
+name = "fake-llama-server"
+path = "src/bin/fake_llama_server.rs"
+test = false
+doc = false

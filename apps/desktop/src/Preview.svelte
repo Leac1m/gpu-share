@@ -5,10 +5,11 @@
 	import ClientMachine from './lib/components/ClientMachine.svelte';
 	import Link from './lib/components/Link.svelte';
 	import TestBench from './lib/components/TestBench.svelte';
-	import { onPaired, sim } from './lib/mock/backend.svelte';
+	import { onPaired, sim, start } from './lib/mock/backend.svelte';
 	import { ui } from './lib/ui.svelte';
 
 	onPaired(() => (ui.clientTab = 'chat'));
+	start();
 
 	let theme = $state<'light' | 'dark'>(
 		window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'

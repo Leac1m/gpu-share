@@ -91,6 +91,7 @@ on real machines.
 - [ ] Installer + firewall rule on a clean Windows machine (`P7-T1`)
 - [ ] Tray icon on both platforms (`P7-T5`)
 - [ ] Tokens/sec, load time, VRAM, temperature on the real A2000 (`P5-T11`)
+- [ ] Engine Job Object on Windows: closing the app kills `llama-server`, priority shows Below normal in Task Manager (`P2-T4`)
 
 ---
 
@@ -100,7 +101,7 @@ on real machines.
 |---|---|---|---|
 | [0](#phase-0--foundations) | Foundations and decisions | 6 / 6 | Done |
 | [1](#phase-1--clickable-prototype) | Clickable prototype | 5 / 10 | Build 0.2 in the repo and the Svelte app; feedback not yet gathered |
-| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 0 / 10 | Not started |
+| [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done (GUI pairing arrives with Phase 4) |
 | [3](#phase-3--discovery) | Discovery on the LAN | 0 / 8 | Not started |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 0 / 7 | Not started |
 | [5](#phase-5--limits-wired-up) | Limits wired up | 0 / 11 | Not started |
@@ -112,8 +113,9 @@ on real machines.
 
 ## Where the project stands today
 
-The repository holds the spec, the HTML prototype, and a scaffold with **mock data only**: no
-networking, engine, or persistence code exists yet.
+The repository holds the spec, the HTML prototype (build 0.2), the Svelte app over a mock for the
+browser preview, and the real host and client in Rust behind the same UI. See the dashboard for
+which phases are real.
 
 | What exists | Where | State |
 |---|---|---|
@@ -320,25 +322,25 @@ Goal: friends see and click every screen before anything technical exists, and s
 Build the gatekeeper and engine supervisor and connect the chat screen to them. Developed on the
 Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU needed for this phase**.
 
-- [ ] **P2-T1** — Vendor or locate `llama-server`; a CPU build plus a small GGUF model for dev.
+- [x] **P2-T1** — Vendor or locate `llama-server`; a CPU build plus a small GGUF model for dev.
       Pin the version. *(spec §5)*
-- [ ] **P2-T2** — Engine supervisor: one process per model, start/stop on demand, health check,
+- [x] **P2-T2** — Engine supervisor: one process per model, start/stop on demand, health check,
       restart on crash, failures surfaced in the UI. *(spec §6.2)*
-- [ ] **P2-T3** — Engine hardening: bind `127.0.0.1` only, random API key generated at each start,
+- [x] **P2-T3** — Engine hardening: bind `127.0.0.1` only, random API key generated at each start,
       `--parallel 1`, `--slot-save-path` left disabled. *(spec §6.2)*
-- [ ] **P2-T4** — Windows Job Object wrapper: kill-on-close, memory cap, below-normal CPU
+- [x] **P2-T4** — Windows Job Object wrapper: kill-on-close, memory cap, below-normal CPU
       priority. Stub or no-op on Linux. *(spec §6.2)*
-- [ ] **P2-T5** — Gatekeeper: HTTPS server (axum + rustls) exposing exactly the five endpoints in
+- [x] **P2-T5** — Gatekeeper: HTTPS server (axum + rustls) exposing exactly the five endpoints in
       spec §6.8. Everything else returns 404.
-- [ ] **P2-T6** — Request queue: one request at a time, waiting clients told their position,
+- [x] **P2-T6** — Request queue: one request at a time, waiting clients told their position,
       engine work cancelled when the client disconnects or presses Stop. *(spec §6.8)*
-- [ ] **P2-T7** — Request clamping: cap `max_tokens`, ignore any parameter that could push
+- [x] **P2-T7** — Request clamping: cap `max_tokens`, ignore any parameter that could push
       resource use past the owner's limits. *(spec §6.8)*
-- [ ] **P2-T8** — Client chat wired to the gatekeeper: streaming replies, Stop button, model
+- [x] **P2-T8** — Client chat wired to the gatekeeper: streaming replies, Stop button, model
       picker, markdown and code formatting, SQLite history on the client. *(spec §6.9)*
-- [ ] **P2-T9** — Per-device usage counters in SQLite (requests, tokens in/out, GPU seconds), with
+- [x] **P2-T9** — Per-device usage counters in SQLite (requests, tokens in/out, GPU seconds), with
       a test asserting prompt and reply text is never written anywhere. *(spec §6.8)*
-- [ ] **P2-T10** — Queue rules added in spec v0.3: at most one waiting request per paired device;
+- [x] **P2-T10** — Queue rules added in spec v0.3: at most one waiting request per paired device;
       when the next request wants a different model, stop the engine and start one for that model;
       when a pause triggers, turn away everything still waiting with the pause message.
       *(spec §6.3, §6.8)*
@@ -361,6 +363,44 @@ Ubuntu machine with a CPU build of llama-server and a tiny model — **no GPU ne
 > GitHub releases should download fine, while the dev GGUF model will not unless the project
 > author adds `huggingface.co` to the environment's allowed domains, or the model is fetched on a
 > local machine. Not yet tried in a cloud session — confirm and correct this note when you do.
+
+> `P2-T1` · 2026-10-13 · Claude (Opus 5.5)
+> Supersedes the 2026-10-13 `P2-T1` note above on one point: in this cloud environment GitHub
+> *release downloads* are refused by the proxy (HTTP 403 on github.com and api.github.com), but
+> `git clone` works. So `scripts/dev-engine.sh` builds a CPU `llama-server` from source at the
+> pinned tag **b11582** (about 4 minutes on 4 cores) into `.dev/`, and fetches SmolLM2-135M-Instruct
+> Q8_0 (145 MB) from Hugging Face, which the project author has since allowed. The engine flags
+> the supervisor relies on (`--alias`, `--no-slots`, `--offline`, `--api-key`, `--parallel`) were
+> checked against that build's `--help`.
+
+> `P2-T2`…`P2-T10` · 2026-10-13 · Claude (Opus 5.5)
+> Where things are: `crates/netcore` (identity + pinned rustls), `crates/host` (`line.rs` the
+> pure queue, `clamp.rs`, `store.rs`, `engine.rs` the supervisor, `gatekeeper.rs`, `core.rs`
+> `HostCore`, `runtime.rs` the loop that opens/closes the port), `crates/client` (`api.rs`
+> `HostClient`, `history.rs`, `runtime.rs` `ClientRuntime`). The Tauri app (`src-tauri/src`) only
+> wires these up and pushes `host-view` / `client-view` events; `src/lib/real/backend.svelte.ts`
+> is the TS side. Decisions worth knowing:
+> * TLS is rustls with the **ring** provider everywhere (and `reqwest` 0.12), to keep aws-lc-rs and
+>   its Windows build tools out. The gatekeeper serves HTTP/1.1 over its own accept loop so each
+>   connection's client-certificate fingerprint can be attached to the request.
+> * Queue position and load progress travel inside the chat stream as SSE events named
+>   `gpushare` (`protocol::api::QueueEvent`, golden fixture `queue_events.json`); OpenAI clients
+>   ignore named events. The forwarded engine body is rebuilt from an allowlist
+>   (`clamp::FORWARDED_KEYS`), `model` is rewritten to the catalog id and `timings` /
+>   `system_fingerprint` are dropped, because llama-server otherwise reports the model's file
+>   path (which contains the owner's user name).
+> * A pause cuts the running reply after `PAUSE_GRACE` (3 s), then the engine is stopped.
+> * `Announcement` gained optional `reason` and `gpu` fields (older installs ignore them).
+> * Tests: suite 3 (`tests/gatekeeper_surface.rs`, 35 paths that must 404), suite 5
+>   (`tests/no_prompt_text_stored.rs`), suite 6 (proptest in `clamp.rs`), suite 9
+>   (`tests/supervisor.rs`, against `src/bin/fake_llama_server.rs`). `tests/real_engine.rs` runs
+>   the real engine and is `#[ignore]`d in CI: `scripts/dev-engine.sh && cargo test -p host --test
+>   real_engine -- --ignored`. It passed here (SmolLM2 answered through the gatekeeper).
+> * `P2-T4` is compiled (checked with `cargo check --target x86_64-pc-windows-gnu` and in CI) but not
+>   yet run on Windows; see the manual checklist.
+> * `P2-T8` is verified through `ClientRuntime` against a live gatekeeper (`tests/client_runtime.rs`)
+>   and the app was launched under Xvfb, but clicking through chat in the real window needs pairing
+>   (Phase 4).
 
 ---
 

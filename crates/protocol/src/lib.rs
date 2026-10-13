@@ -7,11 +7,16 @@
 //! are for. See `docs/roadmap.md`, Phase 0 and Phase 3, for the tasks that
 //! build on this crate.
 
+pub mod api;
 pub mod discovery;
 pub mod gatekeeper;
 pub mod models;
+pub mod pairing;
 
 /// The wire protocol version this build speaks. Bump it whenever a message
 /// shape changes in a way that isn't backward compatible, and see spec
 /// §6.10 ("Protocol versioning") before doing so.
 pub const PROTOCOL_VERSION: &str = "1.0";
+
+/// TCP port the gatekeeper's HTTPS server listens on (roadmap D7).
+pub const GATEKEEPER_PORT: u16 = 50123;

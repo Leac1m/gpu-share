@@ -707,10 +707,9 @@ export const sim = {
 	}
 };
 
-function start() {
+/** Starts the simulation. Called by the preview shell, never inside the real app. */
+export function start() {
 	if (tickTimer) clearInterval(tickTimer);
 	tickTimer = setInterval(tick, 500);
 	tick();
 }
-
-start();
