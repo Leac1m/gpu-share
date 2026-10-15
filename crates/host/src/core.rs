@@ -78,7 +78,12 @@ pub enum JobPhase {
 struct Slot {
     tx: watch::Sender<Turn>,
     phase: JobPhase,
+    /// The owner's own question (`P9-T1`): not stopped by pauses, goes ahead of friends.
+    owner: bool,
 }
+
+/// The device id the owner's own questions are queued under.
+pub const OWNER: &str = "owner";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JoinRefused {
@@ -117,6 +122,10 @@ pub struct HostCore {
     /// host stays paused.
     engine_setup: Mutex<Option<ViewDownload>>,
     engine_ready: std::sync::atomic::AtomicBool,
+    /// The owner asked a question before the engine was set up (Linux fetches it on first use).
+    engine_wanted: std::sync::atomic::AtomicBool,
+    /// The loaded model was started for the owner, who isn't held to the friends' memory limit.
+    loaded_for_owner: std::sync::atomic::AtomicBool,
     /// For model downloads: follows the system proxy, unlike `engine_http`.
     pub download_http: reqwest::Client,
     inner: Mutex<Inner>,
@@ -173,6 +182,8 @@ impl HostCore {
             network_warning: Mutex::new(None),
             engine_setup: Mutex::new(None),
             engine_ready: std::sync::atomic::AtomicBool::new(true),
+            engine_wanted: Default::default(),
+            loaded_for_owner: Default::default(),
             download_http: reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build().unwrap(),
             cfg,
             identity,
@@ -277,6 +288,26 @@ impl HostCore {
         self.engine_ready.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
+    pub fn want_engine(&self) {
+        self.engine_wanted.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn clear_engine_wanted(&self) {
+        self.engine_wanted.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn engine_wanted(&self) -> bool {
+        self.engine_wanted.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn set_loaded_for_owner(&self, owner: bool) {
+        self.loaded_for_owner.store(owner, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn loaded_for_owner(&self) -> bool {
+        self.loaded_for_owner.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn engine_ready(&self) -> bool {
         self.engine_ready.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -333,9 +364,29 @@ impl HostCore {
         list
     }
 
-    pub fn model_spec(&self, id: &str) -> Option<ModelSpec> {
+    /// What the owner may pick for himself: every installed model, including the ones he
+    /// switched off for friends ("keep it for yourself") or that are over the friends' memory
+    /// limit. Whether one fits the card right now is still checked before loading.
+    pub fn owner_models(&self) -> Vec<CatalogEntry> {
         let s = self.settings();
-        self.offered().into_iter().find(|e| e.id == id).map(|e| ModelSpec {
+        let mut list = self.installed();
+        if let Some(d) = &s.default_model {
+            list.sort_by_key(|e| &e.id != d);
+        }
+        list
+    }
+
+    pub fn model_spec(&self, id: &str) -> Option<ModelSpec> {
+        self.spec_from(self.offered(), id)
+    }
+
+    pub fn owner_model_spec(&self, id: &str) -> Option<ModelSpec> {
+        self.spec_from(self.owner_models(), id)
+    }
+
+    fn spec_from(&self, list: Vec<CatalogEntry>, id: &str) -> Option<ModelSpec> {
+        let s = self.settings();
+        list.into_iter().find(|e| e.id == id).map(|e| ModelSpec {
             path: self.model_path(&e),
             ctx: s.ctx,
             args: e.engine_args.clone(),
@@ -346,6 +397,12 @@ impl HostCore {
 
     pub fn limits(&self) -> Limits {
         Limits { max_reply: self.settings().max_reply }
+    }
+
+    /// The owner's own answers aren't held to the friends' reply cap, only to the context size.
+    pub fn owner_limits(&self) -> Limits {
+        let s = self.settings();
+        Limits { max_reply: s.max_reply.max(s.ctx) }
     }
 
     // ------------------------------------------------------------------ signals
@@ -403,12 +460,11 @@ impl HostCore {
         };
         inner.gate = gate;
         if closing {
-            for (_, slot) in inner.line.drain() {
+            for (_, slot) in inner.line.drain_where(|s| !s.owner) {
                 let _ = slot.tx.send(Turn::Stopped(friend.clone()));
             }
-        } else {
-            Self::pump(&mut inner);
         }
+        Self::pump(&mut inner);
         was_open && closing
     }
 
@@ -426,13 +482,33 @@ impl HostCore {
             Gate::Open => {}
         }
         let (tx, rx) = watch::channel(Turn::Waiting(0));
-        let id = match inner.line.join(device, Slot { tx, phase: JobPhase::Queued }) {
+        let id = match inner.line.join(device, Slot { tx, phase: JobPhase::Queued, owner: false }) {
             Ok(id) => id,
             Err(JoinError::AlreadyQueued) => return Err(JoinRefused::AlreadyQueued),
         };
         inner.last_request = Instant::now();
         Self::pump(&mut inner);
         Ok(Ticket { id, device: device.to_string(), rx, core: self.clone() })
+    }
+
+    /// The owner's own question (`P9-T1`). The pause rules protect the owner from friends, not
+    /// from himself, so this joins whatever the gate says, ahead of friends who are waiting
+    /// (never ahead of the reply being written).
+    pub fn join_owner(self: &Arc<Self>) -> Result<Ticket, JoinRefused> {
+        let mut inner = self.inner.lock().unwrap();
+        let (tx, rx) = watch::channel(Turn::Waiting(0));
+        let id = match inner.line.join_front(OWNER, Slot { tx, phase: JobPhase::Queued, owner: true }) {
+            Ok(id) => id,
+            Err(JoinError::AlreadyQueued) => return Err(JoinRefused::AlreadyQueued),
+        };
+        inner.last_request = Instant::now();
+        Self::pump(&mut inner);
+        Ok(Ticket { id, device: OWNER.to_string(), rx, core: self.clone() })
+    }
+
+    /// Whether the owner has a question waiting or being answered.
+    pub fn owner_active(&self) -> bool {
+        self.inner.lock().unwrap().line.has_device(OWNER)
     }
 
     fn leave(&self, id: u64) {
@@ -445,7 +521,8 @@ impl HostCore {
 
     /// Starts the next request if the card is free, and tells everyone waiting their place.
     fn pump(inner: &mut Inner) {
-        if inner.gate == Gate::Open {
+        // a closed gate holds friends back, never the owner
+        if inner.gate == Gate::Open || inner.line.front().is_some_and(|s| s.owner) {
             if let Some(id) = inner.line.start_next() {
                 if let Some(slot) = inner.line.payload(id) {
                     let _ = slot.tx.send(Turn::Go);

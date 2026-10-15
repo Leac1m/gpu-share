@@ -14,7 +14,7 @@ const sh = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
 const owner = await Session.start('http://127.0.0.1:4464', APP, 'owner');
 const friend = await Session.start('http://127.0.0.1:4474', APP, 'friend');
 try {
-	// --- a computer without a card opens on "Use a friend's"; the owner goes to Share mode
+	// --- a computer without a card opens on "Chat"; the owner goes to Share mode
 	await owner.click('//header//button[contains(., "Share this computer")]');
 	await owner.click(btn('Set up sharing'));
 	if (existsSync(`${OUT}/owner/engine`)) throw new Error('the engine was downloaded before sharing was switched on');

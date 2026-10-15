@@ -28,7 +28,7 @@ try {
 	log('owner: sharing, Ready');
 
 	// --- the friend finds the owner's computer
-	await friend.click(btn("Use a friend's"));
+	await friend.click('//header//button[normalize-space(.)="Chat"]');
 	await friend.wait('//div[contains(@class,"device")]//div[@class="nm" and contains(., "E2E Owner")]', 30000);
 	log('friend: owner found on the network');
 	const seen = await friend.text('//div[contains(@class,"device")][.//div[contains(., "E2E Owner")]]//div[@class="ds"]');
@@ -101,6 +101,20 @@ try {
 	await friend.click(tab('Computers'));
 	await friend.wait('//div[contains(@class,"big") and contains(., "Looking for computers")]', 30000);
 	log('friend: owner disappeared after sharing was switched off');
+
+	// --- the owner uses his own GPU himself, with sharing off (P9-T1)
+	await owner.click('//header//button[normalize-space(.)="Chat"]');
+	await owner.click('//div[contains(@class,"device")][.//div[@class="nm" and normalize-space(.)="This computer"]]//button[normalize-space(.)="Chat"]', 15000);
+	await owner.wait('//div[contains(@class,"chathead")]//select/option', 30000);
+	await owner.type('//div[contains(@class,"composer")]//input', 'Say hi to the owner.');
+	await owner.click(btn('Send'));
+	await owner.wait('//div[contains(@class,"msg ai")]', 90000);
+	const ownEnd = Date.now() + 90000;
+	while (Date.now() < ownEnd && (await owner.js('return !!document.querySelector(".msg.ai .caret")'))) await sleep(300);
+	const ownReply = await owner.text('(//div[contains(@class,"msg ai")])[last()]');
+	if (!ownReply.trim()) throw new Error('the owner got no answer from his own computer');
+	log('owner: answered by his own computer with sharing off:', JSON.stringify(ownReply.slice(0, 60)));
+	await owner.screenshot(`${OUT}/e2e-owner-own-chat.png`);
 	await owner.screenshot(`${OUT}/e2e-owner-share.png`);
 	log('PASS');
 } catch (e) {

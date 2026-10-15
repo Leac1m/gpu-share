@@ -134,3 +134,31 @@ async fn ask_again_after_a_pause_sends_the_same_question() {
     let v = wait_for(&rt, |v| v.turn.is_none() && v.msgs.last().is_some_and(|m| m.role == "assistant")).await;
     assert!(v.msgs.last().unwrap().text.contains("the question"));
 }
+
+/// `P9-T1`: the owner's own computer is on his list as "This computer", whether sharing is on
+/// or off, and answers him through its loopback listener.
+#[tokio::test]
+async fn the_owners_own_computer_is_always_on_his_list_and_answers_him() {
+    let host = start_host(&[]).await;
+    host.core.set_gate(host::core::Gate::Off);
+    let gk = host::gatekeeper::Gatekeeper::start_owner(host.core.clone(), "t0ken".into()).await.unwrap();
+    let rt = ClientRuntime::new(host.core.identity.clone(), History::in_memory().unwrap(), "Owner".into());
+    rt.set_own_host(gk.addr, "t0ken".into(), host.core.announcement(true));
+    rt.refresh().await;
+    rt.expire(Duration::ZERO);
+    let v = rt.view();
+    assert_eq!(v.hosts.len(), 1);
+    let me = &v.hosts[0];
+    assert!(me.own && me.paired);
+    assert_eq!(me.name, "This computer");
+    assert_eq!(me.status, "available", "sharing is off, but not for the owner");
+    assert_eq!(me.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["model-a", "model-b"]);
+
+    rt.forget(&me.id);
+    assert_eq!(rt.view().hosts.len(), 1, "can't be forgotten");
+    rt.open_chat(&me.id);
+    rt.set_model("model-a");
+    rt.send("just me");
+    let v = wait_for(&rt, |v| v.turn.is_none() && v.msgs.last().is_some_and(|m| m.role == "assistant")).await;
+    assert_eq!(v.msgs.last().unwrap().text.trim(), "Echo: just me");
+}

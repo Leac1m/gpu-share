@@ -143,7 +143,8 @@ pub async fn drive(core: Arc<HostCore>, manifest: Manifest, dir: PathBuf, when: 
     let mut wait_for_share = when == When::FirstShare;
     loop {
         if wait_for_share {
-            while !core.sharing() {
+            // the first switch-on, or the owner's own first question (`P9-T1`)
+            while !core.sharing() && !core.engine_wanted() {
                 tokio::time::sleep(Duration::from_millis(250)).await;
             }
         }
@@ -167,7 +168,8 @@ pub async fn drive(core: Arc<HostCore>, manifest: Manifest, dir: PathBuf, when: 
                     pct: 0.0,
                     stage: format!("Couldn't set up the engine: {e}. Switch sharing off and on to try again."),
                 }));
-                // try again on the next switch-on
+                // try again on the next switch-on (or the owner's next question)
+                core.clear_engine_wanted();
                 while core.sharing() {
                     tokio::time::sleep(Duration::from_millis(250)).await;
                 }

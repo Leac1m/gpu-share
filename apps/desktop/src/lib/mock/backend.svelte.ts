@@ -274,6 +274,7 @@ function syncViews() {
 					status: host.state,
 					reason: host.clientReason,
 					busyWithOther: !!job && job.who !== ME.id,
+					own: false,
 					paired: pairedMe,
 					models: pairedMe ? offered().map((id) => ({ id, name: model(id)!.name })) : [],
 					address: '192.168.1.23'

@@ -4,7 +4,7 @@
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::awake::KeepAwake;
 use crate::core::{Gate, HostCore, PAUSE_GRACE};
@@ -22,6 +22,8 @@ pub struct HostRuntime {
     policy: Mutex<PolicyState>,
     awake: KeepAwake,
     ticks: std::sync::atomic::AtomicU64,
+    /// When the gate last closed, for freeing the card after the grace.
+    closed_since: Mutex<Option<Instant>>,
 }
 
 impl HostRuntime {
@@ -35,6 +37,7 @@ impl HostRuntime {
             policy: Mutex::new(PolicyState::default()),
             awake: KeepAwake::new(),
             ticks: Default::default(),
+            closed_since: Default::default(),
         })
     }
 
@@ -91,15 +94,19 @@ impl HostRuntime {
         }
         drop(gk);
 
-        // 3. a pause or switch-off frees the card once the running reply has had its grace
-        if closed {
-            let core = self.core.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(PAUSE_GRACE + Duration::from_millis(500)).await;
-                if core.gate() != Gate::Open {
-                    core.supervisor.stop().await;
-                }
-            });
+        // 3. a pause or switch-off frees the card once the running reply has had its grace,
+        // unless the owner is using it himself (P9-T1); then once he's done
+        {
+            let mut since = self.closed_since.lock().unwrap();
+            if closed {
+                *since = Some(Instant::now());
+            } else if self.core.gate() == Gate::Open {
+                *since = None;
+            }
+        }
+        let grace_over = self.closed_since.lock().unwrap().is_some_and(|t| t.elapsed() >= PAUSE_GRACE + Duration::from_millis(500));
+        if grace_over && !self.core.owner_active() && self.core.supervisor.status().loaded.is_some() {
+            self.core.supervisor.stop().await;
         }
 
         // 4. engine health, idle, budget
@@ -121,7 +128,7 @@ impl HostRuntime {
                 .iter()
                 .find(|e| &e.id == id)
                 .is_some_and(|e| HostCore::vram_gb(e, settings.ctx) > settings.budget);
-            if over && !self.core.busy() {
+            if over && !self.core.busy() && !self.core.loaded_for_owner() {
                 self.core.supervisor.stop().await;
                 self.core.toast("Model unloaded", "It needs more memory than your limit allows.");
             }

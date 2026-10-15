@@ -50,7 +50,7 @@
 				<span class="traydot" style="background:{dot}"></span> {hardware(hostBackend.view).shareLabel}
 			</button>
 			<button class="tbtn" role="tab" aria-selected={mode === 'use'} onclick={() => (ui.mode = 'use')}>
-				Use a friend's
+				Chat
 			</button>
 		</div>
 	{/if}

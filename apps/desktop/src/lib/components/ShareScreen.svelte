@@ -11,7 +11,7 @@
 	const hw = $derived(hardware(h));
 	const vram = $derived(hw.totalGB);
 	const modelName = (id: string | null) => h.catalog.find((m) => m.id === id)?.name ?? id ?? '';
-	const whoName = (id: string) => h.paired.find((p) => p.id === id)?.name ?? 'A friend';
+	const whoName = (id: string) => (id === 'owner' ? 'You' : (h.paired.find((p) => p.id === id)?.name ?? 'A friend'));
 	const totalMins = $derived(minutes(Object.values(h.usage).reduce((a, u) => a + u.gpuSec, 0)));
 	const temp = $derived(h.temp);
 	const tempBarClass = $derived(temp === null ? '' : temp >= h.settings.tempPause ? 'hot' : temp >= 70 ? 'warm' : '');
@@ -29,8 +29,8 @@
 		if (h.state === 'off') return 'Nothing is running. The app is idle and your ' + hw.short + ' is free.';
 		if (h.state === 'paused') return 'Nothing is running. The model was unloaded when sharing paused.';
 		if (h.job?.phase === 'loading')
-			return 'Loading ' + modelName(h.loading) + ' ' + hw.onto + ' for ' + whoName(h.job.who) + '.' + waiting;
-		if (h.job) return whoName(h.job.who) + ' is chatting with ' + modelName(h.loaded) + '.' + waiting;
+			return 'Loading ' + modelName(h.loading) + ' ' + hw.onto + ' for ' + (h.job.who === 'owner' ? 'you' : whoName(h.job.who)) + '.' + waiting;
+		if (h.job) return whoName(h.job.who) + (h.job.who === 'owner' ? ' are' : ' is') + ' chatting with ' + modelName(h.loaded) + '.' + waiting;
 		if (h.loaded) return modelName(h.loaded) + ' is loaded, waiting for the next question.';
 		return 'Ready. Nothing is loaded until someone asks a question.';
 	});

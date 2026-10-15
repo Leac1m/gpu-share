@@ -66,7 +66,13 @@ pub struct ClientRuntime {
     /// This computer's name, shown in the owner's pairing popup.
     pub name: String,
     state: Mutex<State>,
+    /// This computer's own Share mode, if it has one (`P9-T1`): its loopback listener and the
+    /// in-memory token for it.
+    own: Mutex<Option<(SocketAddr, String)>>,
 }
+
+/// What the owner's own computer is called in his Use mode.
+pub const OWN_NAME: &str = "This computer";
 
 fn now_unix() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
@@ -74,22 +80,48 @@ fn now_unix() -> i64 {
 
 impl ClientRuntime {
     pub fn new(identity: Identity, history: History, name: String) -> Arc<Self> {
-        Arc::new(Self { identity, history, name, state: Mutex::new(State::default()) })
+        Arc::new(Self { identity, history, name, state: Mutex::new(State::default()), own: Mutex::new(None) })
+    }
+
+    /// Adds this computer's own Share mode to the list as "This computer" (`P9-T1`): always
+    /// there, always paired, reached over its loopback listener.
+    pub fn set_own_host(&self, address: SocketAddr, token: String, info: Announcement) {
+        *self.own.lock().unwrap() = Some((address, token));
+        self.upsert_host(info, address);
+    }
+
+    /// Whether `host_id` is this computer's own Share mode.
+    pub fn is_own(&self, host_id: &str) -> bool {
+        host_id == self.identity.fingerprint() && self.own.lock().unwrap().is_some()
     }
 
     /// A client for talking to a host: pinned to its fingerprint, with our token if paired.
     pub fn api(&self, host_id: &str, address: SocketAddr) -> Result<HostClient, ClientError> {
-        let token = self.history.host(host_id).ok().flatten().map(|k| k.token);
+        let token = if self.is_own(host_id) {
+            self.own.lock().unwrap().as_ref().map(|(_, t)| t.clone())
+        } else {
+            self.history.host(host_id).ok().flatten().map(|k| k.token)
+        };
         HostClient::new(&self.identity, address, ServerPin::Fingerprint(host_id.to_string()), token)
     }
 
     pub fn is_paired(&self, host_id: &str) -> bool {
-        self.history.host(host_id).ok().flatten().is_some()
+        self.is_own(host_id) || self.history.host(host_id).ok().flatten().is_some()
     }
 
     /// Adds or refreshes a host that announced itself or answered `/api/info`. An announcement
     /// without a status means sharing is off: the host disappears.
-    pub fn upsert_host(&self, info: Announcement, address: SocketAddr) {
+    pub fn upsert_host(&self, mut info: Announcement, address: SocketAddr) {
+        if self.is_own(&info.id) {
+            // the owner's own computer answers him whether sharing is on, off or paused
+            info.name = OWN_NAME.into();
+            info.status = Some(if info.status == Some(ShareStatus::Busy) { ShareStatus::Busy } else { ShareStatus::Available });
+            info.reason = None;
+            let mut st = self.state.lock().unwrap();
+            let models = st.hosts.get(&info.id).map(|h| h.models.clone()).unwrap_or_default();
+            st.hosts.insert(info.id.clone(), SeenHost { info, address, last_seen: Instant::now(), models, fails: 0 });
+            return;
+        }
         let mut st = self.state.lock().unwrap();
         if info.status.is_none() || !info.modes.contains(&protocol::discovery::Mode::Share) {
             st.hosts.remove(&info.id);
@@ -114,6 +146,9 @@ impl ClientRuntime {
     /// A poll got no answer. Two in a row (about ten seconds) and the host is gone: its owner
     /// switched sharing off, or it left the network.
     fn missed(&self, id: &str) {
+        if self.is_own(id) {
+            return;
+        }
         let mut st = self.state.lock().unwrap();
         let gone = match st.hosts.get_mut(id) {
             Some(h) => {
@@ -129,7 +164,8 @@ impl ClientRuntime {
 
     /// Hosts not heard from in `max_age` drop off the list (spec §6.6: three missed heartbeats).
     pub fn expire(&self, max_age: Duration) {
-        self.state.lock().unwrap().hosts.retain(|_, h| h.last_seen.elapsed() <= max_age);
+        let own = self.own.lock().unwrap().is_some().then(|| self.identity.fingerprint().to_string());
+        self.state.lock().unwrap().hosts.retain(|id, h| Some(id) == own.as_ref() || h.last_seen.elapsed() <= max_age);
     }
 
     pub fn hosts(&self) -> Vec<SeenHost> {
@@ -196,6 +232,9 @@ impl ClientRuntime {
     }
 
     pub fn forget(&self, host_id: &str) {
+        if self.is_own(host_id) {
+            return;
+        }
         let _ = self.history.forget_host(host_id);
         let mut st = self.state.lock().unwrap();
         if st.chat_host.as_deref() == Some(host_id) {
@@ -264,7 +303,9 @@ impl ClientRuntime {
                     }
                     ChatEvent::Queue(QueueEvent::Stopped { reason }) => {
                         let started = self.finish_partial(&host_id);
-                        let text = if started {
+                        let text = if started && self.is_own(&host_id) {
+                            format!("This computer stopped part way through. {reason}.")
+                        } else if started {
                             format!("{}'s computer stopped part way through. {reason}.", host.info.name)
                         } else {
                             format!("Your question wasn't answered. {reason}. Send it again when the host is back.")
@@ -414,7 +455,8 @@ impl ClientRuntime {
     /// The Use-mode screens (`ClientView` in the UI).
     pub fn view(&self) -> ClientView {
         let st = self.state.lock().unwrap();
-        let hosts = st
+        let own_id = self.own.lock().unwrap().is_some().then(|| self.identity.fingerprint().to_string());
+        let mut hosts: Vec<ViewHost> = st
             .hosts
             .values()
             .map(|h| {
@@ -445,9 +487,11 @@ impl ClientRuntime {
                     paired,
                     models: if paired { h.models.clone() } else { vec![] },
                     address: h.address.to_string(),
+                    own: own_id.as_deref() == Some(h.info.id.as_str()),
                 }
             })
             .collect();
+        hosts.sort_by_key(|h| !h.own); // "This computer" first
         let mut msgs: Vec<ViewMessage> = st
             .chat_host
             .as_ref()
@@ -500,6 +544,8 @@ pub struct ViewHost {
     pub paired: bool,
     pub models: Vec<RemoteModel>,
     pub address: String,
+    /// The owner's own computer (`P9-T1`).
+    pub own: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

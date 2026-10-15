@@ -92,7 +92,7 @@ export async function connect() {
 	if (h) Object.assign(host, h);
 	Object.assign(client, c);
 	// Open on Share mode where sharing is the point (a graphics card, or set up already); on a
-	// Linux computer without a card that hasn't shared yet, open on "Use a friend's".
+	// Linux computer without a card that hasn't shared yet, open on "Chat".
 	ui.mode = h && (h.card || h.sharing || h.settings.welcomed) ? 'share' : 'use';
 	capability.ready = true;
 }

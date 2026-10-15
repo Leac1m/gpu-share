@@ -46,6 +46,23 @@ impl<T> Line<T> {
         Ok(id)
     }
 
+    /// Joins the front of the waiting line, behind the request being answered (the owner's own
+    /// questions, `P9-T1`).
+    pub fn join_front(&mut self, device: &str, payload: T) -> Result<u64, JoinError> {
+        if self.has_device(device) {
+            return Err(JoinError::AlreadyQueued);
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        self.waiting.push_front(Entry { id, device: device.to_string(), payload });
+        Ok(id)
+    }
+
+    /// The request that would start next.
+    pub fn front(&self) -> Option<&T> {
+        self.waiting.front().map(|e| &e.payload)
+    }
+
     pub fn has_device(&self, device: &str) -> bool {
         self.running.iter().chain(self.waiting.iter()).any(|e| e.device == device)
     }
@@ -80,6 +97,20 @@ impl<T> Line<T> {
     /// Empties the line, running request included (a pause turns everyone away).
     pub fn drain(&mut self) -> Vec<(u64, T)> {
         self.running.take().into_iter().chain(self.waiting.drain(..)).map(|e| (e.id, e.payload)).collect()
+    }
+
+    /// Removes every request, running or waiting, whose payload matches (a pause turns friends
+    /// away but not the owner).
+    pub fn drain_where(&mut self, mut f: impl FnMut(&T) -> bool) -> Vec<(u64, T)> {
+        let mut out = Vec::new();
+        if self.running.as_ref().is_some_and(|e| f(&e.payload)) {
+            let e = self.running.take().unwrap();
+            out.push((e.id, e.payload));
+        }
+        let (gone, kept): (Vec<_>, Vec<_>) = self.waiting.drain(..).partition(|e| f(&e.payload));
+        self.waiting = kept.into();
+        out.extend(gone.into_iter().map(|e| (e.id, e.payload)));
+        out
     }
 
     /// Removes everything from one device (it was unpaired).
@@ -118,6 +149,35 @@ impl<T> Line<T> {
 
     pub fn is_empty(&self) -> bool {
         self.running.is_none() && self.waiting.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+
+    #[test]
+    fn the_front_of_the_line_is_behind_the_running_request() {
+        let mut l: Line<&str> = Line::new();
+        let a = l.join("a", "friend").unwrap();
+        assert_eq!(l.start_next(), Some(a));
+        let b = l.join("b", "friend").unwrap();
+        let o = l.join_front("owner", "owner").unwrap();
+        assert_eq!(l.position(o), Some(2));
+        assert_eq!(l.position(b), Some(3));
+        assert_eq!(l.join_front("owner", "owner"), Err(JoinError::AlreadyQueued));
+        assert_eq!(l.front(), Some(&"owner"));
+    }
+
+    #[test]
+    fn drain_where_keeps_what_does_not_match() {
+        let mut l: Line<&str> = Line::new();
+        let o = l.join("owner", "owner").unwrap();
+        l.start_next();
+        let f = l.join("f", "friend").unwrap();
+        let gone = l.drain_where(|p| *p != "owner");
+        assert_eq!(gone.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![f]);
+        assert_eq!(l.running().map(|r| r.0), Some(o));
     }
 }
 

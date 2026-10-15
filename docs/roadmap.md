@@ -114,6 +114,7 @@ on real machines.
 | [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | The Windows installer and the Ubuntu packages work on the author's machines; the updater, code signing and the pilot are the project author's calls |
 | [8](#phase-8--ubuntu-hosts) | Ubuntu hosts | 8 / 9 | Ubuntu shares with or without a GPU; installed package tested Ubuntu to Ubuntu on the processor. The NVIDIA-card check on a real Ubuntu desktop is still to do |
+| [9](#phase-9--own-use-and-local-api) | Own use and local API | 1 / 4 | The owner can use his own GPU from the app; the local API is in progress |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
 ---
@@ -812,6 +813,45 @@ NVIDIA card.
 
 ---
 
+## Phase 9 — Own use and local API
+
+Added 15 October 2026 after the first tests on the author's machines: the host wanted to use the
+AI himself (D12), and the project author asked for a local endpoint any harness can use (D13).
+
+- [x] **P9-T1** — The owner uses his own GPU from the same app: "This computer" at the top of
+      his Use mode, no pairing, works with sharing on, off or paused, goes ahead of friends who
+      are waiting, every installed model, not counted as usage. A loopback-only listener for this
+      install's own certificate plus an in-memory token. *(spec §6.1)*
+- [ ] **P9-T2** — Local OpenAI-compatible API on every computer: `127.0.0.1` only, with a key,
+      `/v1/models` and `/v1/chat/completions` forwarded to a paired host (or this computer) over
+      the pinned connection. *(spec §6.9, L-T5)*
+- [ ] **P9-T3** — Tool calls get through to the model, so agent harnesses can use it as their
+      brain; the host still only returns text. *(spec §6.8, §7)*
+- [ ] **P9-T4** — By hand: the owner's own chat on the A2000 while a friend waits; the local API
+      with an editor or harness of the author's choice.
+
+**Done when:** the owner chats with his own GPU on the real laptop, and a harness on a friend's
+computer completes a task with a host's model through the local API.
+
+### Notes — Phase 9
+
+> `P9-T1` · 2026-10-15 · Claude
+> * Second gatekeeper (`Gatekeeper::start_owner`) on `127.0.0.1:0`, always running when the app
+>   can share, built from the same endpoint table minus `/api/pair` and `/api/register`. Its paired
+>   endpoints need a loopback peer, the install's own certificate and a 32-byte token made at
+>   start and kept in memory; the app's Use mode gets the address and token directly
+>   (`ClientRuntime::set_own_host`). The five-endpoint rule is unchanged.
+> * Queue: owner requests join the front of the waiting line (`Line::join_front`), start even with
+>   the gate closed, and survive a pause (`drain_where` drops only friends). The policy loop frees
+>   the card after a pause only once the owner is done (`HostRuntime::closed_since`), and doesn't
+>   unload an over-budget model the owner loaded. Owner replies are capped by the context size, not
+>   the friends' reply cap. On Linux the owner's first question also starts the engine download.
+> * Tests: `tests/owner_use.rs` (8, including the auth refusals and the policy loop) and
+>   `client_runtime.rs`; `scripts/e2e/run.sh` ends with the owner chatting with his own computer
+>   with sharing off. The top-bar tab "Use a friend's" is now "Chat".
+
+---
+
 ## Later (backlog)
 
 Deliberately out of scope for now. The design keeps each of these possible; none is built.
@@ -822,7 +862,7 @@ Deliberately out of scope for now. The design keeps each of these possible; none
 - [ ] **L-T3** — Renting: pricing, payments, per-device billing from the usage counts, terms of
       use. Per-device identity and usage counts exist from day one for this. *(spec R10)*
 - [x] **L-T4** — CPU-only host mode for Linux. *(pulled forward as [Phase 8](#phase-8--ubuntu-hosts), D11)*
-- [ ] **L-T5** — Local OpenAI-compatible API on the client's `localhost` that forwards to the
+- [ ] **L-T5** *(pulled forward as `P9-T2`, D13)* — Local OpenAI-compatible API on the client's `localhost` that forwards to the
       chosen host, so editors and scripts can use the host's GPU. *(spec §6.9 — pull forward into
       Phase 2 if it turns out to be cheap)*
 
@@ -850,6 +890,8 @@ task that depended on it. If you resolve something not listed here, add a row.
 | D9 | Per-friend priority or daily limit (spec §9, added in v0.3) | Open | *Recommended, not yet confirmed:* neither in the first build; first come first served, one waiting request per device and the reply cap are enough until the pilot says otherwise | — |
 | D10 | What the first build is for | Decided | A working prototype the project author can try with friends comes first (project author). *Proposed cut, not yet confirmed:* real chat with the queue, multicast discovery plus "Add by IP", pairing, the share switch with the idle and other-app-on-GPU pause rules, two fixed models, unsigned installers, no auto-updater | 13 October 2026 |
 | D11 | Can Ubuntu computers host? | Decided | Yes (project author): Ubuntu computers can share, with an NVIDIA card or on the processor alone, for Ubuntu-to-Ubuntu testing. Built as Phase 8, spec v0.4 | 15 October 2026 |
+| D12 | Can the owner use his own GPU from the app, and do pause rules apply to him? | Decided | Yes (project author, after the first tests): "This computer" in his Use mode; the pause rules don't apply to his own questions, which go ahead of friends waiting but never cut a reply being written | 15 October 2026 |
+| D13 | Build the local OpenAI-compatible API now? | Decided | Yes, right after the catalog (project author): `L-T5` pulled forward as `P9-T2` | 15 October 2026 |
 
 ---
 

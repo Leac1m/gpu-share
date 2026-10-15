@@ -5,6 +5,9 @@
 //!   and every other method on a known path, is a plain 404.
 //! * `Paired` endpoints need a client certificate whose fingerprint is in the paired list *and*
 //!   that device's token as `Authorization: Bearer`.
+//! * [`Gatekeeper::start_owner`] runs a second listener on `127.0.0.1` for the owner's own use
+//!   of the GPU (`P9-T1`): the same table minus pairing and discovery, open only to this
+//!   install's own certificate with a token that lives in memory.
 //! * Chat requests wait in the [`crate::core`] line; while they wait, the stream carries
 //!   [`QueueEvent`]s. The engine's work is cancelled when the client disconnects, presses Stop,
 //!   or the host pauses (after [`PAUSE_GRACE`]).
@@ -29,7 +32,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
 use tower::ServiceExt;
 
-use crate::core::{HostCore, JobPhase, JoinRefused, Ticket, Turn, PAUSE_GRACE};
+use crate::core::{HostCore, JobPhase, JoinRefused, Ticket, Turn, OWNER, PAUSE_GRACE};
 use crate::store::{Device, Usage};
 
 /// Requests larger than this are refused before parsing.
@@ -57,11 +60,22 @@ pub struct Gatekeeper {
 
 impl Gatekeeper {
     pub async fn start(core: Arc<HostCore>, bind: SocketAddr) -> std::io::Result<Self> {
+        let app = router(core.clone());
+        Self::serve(core, bind, app).await
+    }
+
+    /// The owner's own listener (`P9-T1`), on a free port of `127.0.0.1`. It runs whether
+    /// sharing is on or off; `token` is handed to this app's own Use mode and never stored.
+    pub async fn start_owner(core: Arc<HostCore>, token: String) -> std::io::Result<Self> {
+        let app = owner_router(core.clone(), token);
+        Self::serve(core, SocketAddr::from(([127, 0, 0, 1], 0)), app).await
+    }
+
+    async fn serve(core: Arc<HostCore>, bind: SocketAddr, app: Router) -> std::io::Result<Self> {
         let listener = TcpListener::bind(bind).await?;
         let addr = listener.local_addr()?;
         let tls = netcore::tls::server_config(&core.identity).map_err(std::io::Error::other)?;
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
-        let app = router(core);
         let (shutdown, mut stop) = watch::channel(false);
         let task = tokio::spawn(async move {
             let mut conns = tokio::task::JoinSet::new();
@@ -143,6 +157,58 @@ pub fn router(core: Arc<HostCore>) -> Router {
     r.fallback(not_found).layer(DefaultBodyLimit::max(MAX_BODY_BYTES)).with_state(core)
 }
 
+/// The owner's listener: the same endpoint table, but pairing and discovery aren't offered, and
+/// `Paired` endpoints accept only this install's own certificate with the in-memory token.
+pub fn owner_router(core: Arc<HostCore>, token: String) -> Router {
+    let auth = OwnerAuth { core: core.clone(), token: Arc::new(token) };
+    let mut r = Router::new();
+    for ep in ENDPOINTS {
+        let filter = match ep.method {
+            Method::Get => MethodFilter::GET,
+            Method::Post => MethodFilter::POST,
+        };
+        let route = match ep.path {
+            "/api/info" => on(filter, info),
+            "/v1/models" => on(filter, models),
+            "/v1/chat/completions" => on(filter, chat),
+            _ => continue, // pairing and discovery are for other computers
+        }
+        .fallback(not_found);
+        let route = match ep.access {
+            Access::Anyone => route,
+            Access::Paired => route.route_layer(middleware::from_fn_with_state(auth.clone(), require_owner)),
+        };
+        r = r.route(ep.path, route);
+    }
+    r.fallback(not_found).layer(DefaultBodyLimit::max(MAX_BODY_BYTES)).with_state(core)
+}
+
+#[derive(Clone)]
+struct OwnerAuth {
+    core: Arc<HostCore>,
+    token: Arc<String>,
+}
+
+/// Owner endpoints: a loopback connection, this install's own certificate (its private key
+/// never leaves the data folder), and the token this run of the app made.
+async fn require_owner(State(auth): State<OwnerAuth>, mut req: Request, next: Next) -> Response {
+    let unauthorized = || api_error(StatusCode::UNAUTHORIZED, ErrorKind::Unauthorized, "Only this computer's own GPU Share can use this.");
+    let Some(peer) = req.extensions().get::<Peer>().cloned() else {
+        return unauthorized();
+    };
+    let own_cert = peer.fingerprint.as_deref() == Some(auth.core.identity.fingerprint());
+    let token_ok = bearer(req.headers()).is_some_and(|t| constant_time_eq(t.as_bytes(), auth.token.as_bytes()));
+    if !(peer.addr.ip().is_loopback() && own_cert && token_ok) {
+        return unauthorized();
+    }
+    req.extensions_mut().insert(Device { id: OWNER.into(), name: "You".into() });
+    next.run(req).await
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 async fn not_found() -> StatusCode {
     StatusCode::NOT_FOUND
 }
@@ -187,9 +253,9 @@ async fn register(State(core): State<Arc<HostCore>>, body: Bytes) -> Response {
     Json(core.announcement(false)).into_response()
 }
 
-async fn models(State(core): State<Arc<HostCore>>) -> Response {
-    let data = core
-        .offered()
+async fn models(State(core): State<Arc<HostCore>>, Extension(device): Extension<Device>) -> Response {
+    let list = if device.id == OWNER { core.owner_models() } else { core.offered() };
+    let data = list
         .into_iter()
         .map(|e| ModelInfo { id: e.id, object: "model".into(), owned_by: core.cfg.name.clone(), name: e.name })
         .collect();
@@ -209,14 +275,23 @@ async fn chat(State(core): State<Arc<HostCore>>, Extension(device): Extension<De
         Ok(r) => r,
         Err(e) => return api_error(StatusCode::BAD_REQUEST, ErrorKind::InvalidRequest, format!("Bad request: {e}")),
     };
-    let Some(spec) = core.model_spec(&req.model) else {
+    let owner = device.id == OWNER;
+    let spec = if owner { core.owner_model_spec(&req.model) } else { core.model_spec(&req.model) };
+    let Some(spec) = spec else {
         return api_error(StatusCode::BAD_REQUEST, ErrorKind::UnknownModel, "This host doesn't offer that model.");
     };
-    let engine_body = match crate::clamp::engine_body(&req, core.limits(), &spec.id) {
+    let limits = if owner { core.owner_limits() } else { core.limits() };
+    let engine_body = match crate::clamp::engine_body(&req, limits, &spec.id) {
         Ok(b) => b,
         Err(e) => return api_error(StatusCode::BAD_REQUEST, ErrorKind::InvalidRequest, e.to_string()),
     };
-    let ticket = match core.join(&device.id) {
+    if owner && !core.engine_ready() {
+        // on Linux the engine is fetched on first use: the owner's own question counts
+        core.want_engine();
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, ErrorKind::Paused, "The AI engine is being set up (a one-time download). Try again in a minute");
+    }
+    let joined = if owner { core.join_owner() } else { core.join(&device.id) };
+    let ticket = match joined {
         Ok(t) => t,
         Err(JoinRefused::Closed(reason)) => return api_error(StatusCode::SERVICE_UNAVAILABLE, ErrorKind::Paused, reason),
         Err(JoinRefused::AlreadyQueued) => {
@@ -369,9 +444,12 @@ async fn run_turn(core: Arc<HostCore>, mut ticket: Ticket, spec: crate::engine::
     let _ = tx.send(Out::Queue(QueueEvent::Started)).await;
     let started = Instant::now();
     let mut usage = Usage { requests: 1, ..Default::default() };
+    core.set_loaded_for_owner(ticket.device == OWNER);
     let outcome = stream_engine(&core, &mut ticket, &handle, &spec.id, body, &tx, &mut usage).await;
     usage.gpu_ms = started.elapsed().as_millis() as u64;
-    core.record_usage(&ticket.device, usage);
+    if ticket.device != OWNER {
+        core.record_usage(&ticket.device, usage); // counts are per friend; the owner's own use isn't one
+    }
     if let Err(reason) = outcome {
         let _ = tx.send(Out::Queue(QueueEvent::Stopped { reason })).await;
     }

@@ -11,7 +11,16 @@ writes is added.
 |---|---|---|---|
 | Gatekeeper | `0.0.0.0:50123` TCP | Sharing switch on (paused included) | HTTPS (rustls, TLS 1.2/1.3), HTTP/1.1 |
 | Discovery | `0.0.0.0:53737` UDP, group `239.192.152.143`, TTL 1 | App running | JSON announcements |
+| Owner's own listener (`P9-T1`) | `127.0.0.1:<random>` TCP | Share mode available (sharing on or off) | HTTPS, same as the gatekeeper; only `/api/info`, `/v1/models`, `/v1/chat/completions` |
 | Engine (`llama-server`) | `127.0.0.1:<random>` TCP | A model is loaded | HTTP, random API key per start |
+
+The owner's own listener lets the owner's Use mode reach his own GPU. It binds the loopback
+address, has no pairing or discovery routes, and its paired endpoints need all three of: a
+loopback peer, this install's own certificate (whose private key never leaves the data folder),
+and a token made fresh by each run of the app and held only in memory
+(`tests/owner_use.rs::only_this_installs_certificate_with_the_token_gets_in`). A paired friend's
+certificate and token don't open it. The owner's questions skip the pause rules and aren't
+counted as anyone's usage; friends' requests through the main gatekeeper are unchanged.
 
 Nothing else listens. The engine is not reachable from the network at all: it binds the loopback
 address, and its API key is generated fresh for every start and never leaves the host process
@@ -67,6 +76,9 @@ address, and its API key is generated fresh for every start and never leaves the
 * **Test (suite 5).** `tests/no_prompt_text_stored.rs` runs chats carrying a magic string (full
   replies and one stopped part way), then reads every file the host wrote and fails if the
   string appears anywhere. The owner's view (`HostView`) is checked too.
+* **The owner's own chats** (`P9-T1`) are kept in his own chat history (`client.db`), like any
+  computer's Use mode keeps its own. That is his text on his computer; friends' text still never
+  reaches a file.
 * **Structural.** The host database (`store.rs`) has no text column that could hold a prompt.
   Engine output is kept in a 40-line ring buffer in memory and never logged; engine errors carry
   only the exit status (`engine.rs`). No `log::` call in the workspace formats a request body.

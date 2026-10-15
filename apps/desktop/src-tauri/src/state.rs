@@ -194,6 +194,25 @@ impl AppState {
                     let when = if cfg!(windows) { host::engine_setup::When::Now } else { host::engine_setup::When::FirstShare };
                     tauri::async_runtime::spawn(host::engine_setup::drive(core.clone(), manifest, dir, when));
                 }
+                {
+                    // the owner's own use of his GPU (P9-T1): a loopback listener, always on,
+                    // shown in his Use mode as "This computer"
+                    let core = core.clone();
+                    let client = client.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let mut bytes = [0u8; 32];
+                        rand::RngCore::fill_bytes(&mut rand::rng(), &mut bytes);
+                        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                        match host::gatekeeper::Gatekeeper::start_owner(core.clone(), token.clone()).await {
+                            Ok(gk) => {
+                                client.set_own_host(gk.addr, token, core.announcement(true));
+                                std::future::pending::<()>().await; // keeps the listener for the app's life
+                                drop(gk);
+                            }
+                            Err(e) => log::error!("the owner's own listener could not start: {e}"),
+                        }
+                    });
+                }
                 let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), world);
                 tauri::async_runtime::spawn(rt.clone().run());
                 tauri::async_runtime::spawn(host::announce::run(rt.core.clone()));

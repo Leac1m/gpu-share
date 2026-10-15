@@ -26,6 +26,9 @@
 	}
 
 	const pairingHost = $derived(c.hosts.find((h) => h.id === c.pairing?.hostId));
+	// the owner's own computer (P9-T1) sits above friends' computers
+	const own = $derived(c.hosts.find((h) => h.own));
+	const others = $derived(c.hosts.filter((h) => !h.own));
 </script>
 
 {#snippet addIp()}
@@ -40,7 +43,23 @@
 	{/if}
 {/snippet}
 
-{#if !c.hosts.length}
+{#if own}
+	<h4 class="hd">Your computer</h4>
+	<div class="device">
+		<div class="ic">★</div>
+		<div class="body">
+			<div class="nm">{own.name}</div>
+			<div class="ds">
+				{[own.gpu || 'no graphics card', own.models.length + ' model' + (own.models.length === 1 ? '' : 's')].join(' · ')}.
+				Yours to use any time, even with sharing off or paused. Your questions go ahead of friends'.
+			</div>
+		</div>
+		<div><button class="btn pri sm" onclick={() => openChat(own.id)}>Chat</button></div>
+	</div>
+	<div class="rule"></div>
+{/if}
+
+{#if !others.length}
 	<div class="empty">
 		<div class="spinner"></div>
 		<div class="big">Looking for computers on your network</div>
@@ -58,7 +77,7 @@
 {:else}
 	<h4 class="hd">Computers on your network</h4>
 	<p class="sub">Found by looking around your Wi-Fi, the same way LocalSend does.</p>
-	{#each c.hosts as host (host.id)}
+	{#each others as host (host.id)}
 		<div class="device">
 			<div class="ic">{host.name.slice(0, 1).toUpperCase()}</div>
 			<div class="body">
@@ -103,7 +122,7 @@
 	{/if}
 	<div class="rule"></div>
 	<p class="sub" style="margin:0">
-		{c.hosts.some((h) => h.paired)
+		{others.some((h) => h.paired)
 			? "You take turns with the owner's other friends, one question at a time."
 			: "Until the owner allows you, you can only see a computer's name and whether it's ready."}
 		Everything stays on your own network.

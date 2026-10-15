@@ -165,6 +165,8 @@ export interface RemoteHost {
 	/** Only filled in for paired hosts. */
 	models: RemoteModel[];
 	address: string;
+	/** The owner's own computer ("This computer"): always paired, answers whatever the pause rules say. */
+	own: boolean;
 }
 
 export type ChatRole = 'user' | 'assistant' | 'note';

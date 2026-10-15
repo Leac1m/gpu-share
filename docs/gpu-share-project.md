@@ -127,7 +127,7 @@ Useful Rust crates (to verify during Phase 2): `tokio`, `axum`, `reqwest`, `rust
 Every install is the same app with two modes:
 
 - **Share mode (host).** On Windows, only appears on machines with a supported NVIDIA GPU. On Ubuntu it is always available, with or without a GPU (section 6.11). Contains the switch, the settings, the model library, and the paired-devices list.
-- **Use mode (client).** Available everywhere. Contains the device list and chat.
+- **Use mode (client).** Available everywhere. Contains the device list and chat. On a computer with Share mode, the list starts with **This computer**: the owner can chat with his own GPU at any time, whether sharing is on, off or paused. His questions go ahead of friends who are waiting (never ahead of the answer being written), the pause rules don't apply to them (they protect him from friends, not from himself), and they aren't counted as anyone's usage. He can use every installed model, including ones he switched off for friends. Technically it is a second listener on `127.0.0.1` that only this install's own certificate, with a token held in memory, can use.
 
 Neither installer contains the AI engine, which keeps them small: it is downloaded and checked on first use (section 6.10). The app opens in Share mode where sharing is the point (an NVIDIA card, or sharing already set up) and in Use mode otherwise.
 
