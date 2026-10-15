@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { hostBackend } from '../mock/backend.svelte';
+	import { hostBackend } from '../backend';
+	import { hardware } from '../hardware';
 </script>
 
-{#if hostBackend.host.pending}
-	{@const p = hostBackend.host.pending}
+{#if hostBackend.view.pending}
+	{@const p = hostBackend.view.pending}
 	<div class="modal">
 		<div class="card">
-			<h3>{p.name} wants to use your graphics card</h3>
+			<h3>{p.name} wants to use your {hardware(hostBackend.view).thing}</h3>
 			<p>Check that your friend sees this same code before you allow it.</p>
 			<div class="code mono">{p.code}</div>
 			<div class="acts">

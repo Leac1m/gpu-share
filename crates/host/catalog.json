@@ -1,0 +1,72 @@
+[
+  {
+    "id": "qwen3-4b-q4km",
+    "name": "Qwen3 4B",
+    "description": "Quick and light. Good for short questions, rewriting and summaries.",
+    "file_url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf",
+    "size_bytes": 2497280256,
+    "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "quantization": "Q4_K_M",
+    "license": "Apache 2.0",
+    "default_context": 4096,
+    "shape": { "layers": 36, "kv_heads": 8, "head_dim": 128 },
+    "tps_estimate": 50,
+    "engine_args": ["--chat-template-kwargs", "{\"enable_thinking\":false}"]
+  },
+  {
+    "id": "qwen3-8b-q4km",
+    "name": "Qwen3 8B",
+    "description": "The strongest model that fits an 8 GB card. Better at code and step-by-step answers.",
+    "file_url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf",
+    "size_bytes": 5027783488,
+    "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "quantization": "Q4_K_M",
+    "license": "Apache 2.0",
+    "default_context": 4096,
+    "shape": { "layers": 36, "kv_heads": 8, "head_dim": 128 },
+    "tps_estimate": 28,
+    "engine_args": ["--chat-template-kwargs", "{\"enable_thinking\":false}"]
+  },
+  {
+    "id": "qwen3-1.7b-q8",
+    "name": "Qwen3 1.7B",
+    "description": "Small enough to answer on a computer without a graphics card, at a few words a second. Fine for simple questions.",
+    "file_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/Qwen3-1.7B-Q8_0.gguf",
+    "size_bytes": 1834426016,
+    "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+    "quantization": "Q8_0",
+    "license": "Apache 2.0",
+    "default_context": 4096,
+    "shape": { "layers": 28, "kv_heads": 8, "head_dim": 128 },
+    "tps_estimate": 90,
+    "engine_args": ["--chat-template-kwargs", "{\"enable_thinking\":false}"]
+  },
+  {
+    "id": "qwen3-0.6b-q8",
+    "name": "Qwen3 0.6B",
+    "description": "The smallest real model: quickest on a computer without a graphics card. Good for trying things out, weak at hard questions.",
+    "file_url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc72300e3a2ad315e1317431b06b590a/Qwen3-0.6B-Q8_0.gguf",
+    "size_bytes": 639446688,
+    "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "quantization": "Q8_0",
+    "license": "Apache 2.0",
+    "default_context": 4096,
+    "shape": { "layers": 28, "kv_heads": 8, "head_dim": 128 },
+    "tps_estimate": 150,
+    "engine_args": ["--chat-template-kwargs", "{\"enable_thinking\":false}"]
+  },
+  {
+    "id": "smollm2-135m-q8",
+    "name": "SmolLM2 135M (development)",
+    "description": "A tiny model for testing on a computer without a graphics card. Not useful for real questions.",
+    "file_url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q8_0.gguf",
+    "size_bytes": 144811360,
+    "sha256": "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
+    "quantization": "Q8_0",
+    "license": "Apache 2.0",
+    "default_context": 2048,
+    "shape": { "layers": 30, "kv_heads": 3, "head_dim": 64 },
+    "tps_estimate": 90,
+    "dev_only": true
+  }
+]

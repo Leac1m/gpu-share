@@ -17,3 +17,6 @@ src-tauri/gen/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Dev engine + models (scripts/dev-engine.sh)
+/.dev/

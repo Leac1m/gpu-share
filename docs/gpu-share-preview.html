@@ -297,8 +297,8 @@ input[type=range]{width:150px;accent-color:var(--live)}
 
 <main class="scene">
   <div class="lede">
-    <h1>Two computers, one graphics card.</h1>
-    <p>On the left is your friend's Windows machine with the RTX A2000. On the right is your Ubuntu PC. Turn on sharing, connect the two, and chat. Use the test bench underneath to see what happens when he needs his computer back.</p>
+    <h1>Several friends, one graphics card.</h1>
+    <p>On the left is Dara's Windows laptop with the RTX A2000. On the right is your Ubuntu PC. Turn on sharing, connect the two, and chat. Use the test bench underneath to bring in other friends who share the same card, and to see what happens when Dara needs his computer back.</p>
   </div>
 
   <div class="bench">
@@ -349,7 +349,7 @@ input[type=range]{width:150px;accent-color:var(--live)}
   <!-- ============ TEST BENCH ============ -->
   <section class="testbench">
     <h2>Test bench</h2>
-    <p class="tbnote">These switches pretend to be real life on Dara's laptop. They are not part of the app he would install. Typing speed and model loading run at true speed for an RTX A2000. Rules counted in minutes run faster here so you don't have to wait five real minutes to see them work.</p>
+    <p class="tbnote">These switches pretend to be real life around Dara's laptop. They are not part of the app he would install. Reply speed and model loading run at the estimated speed for an RTX A2000. Rules counted in minutes run faster here so you don't have to wait five real minutes to see them work.</p>
     <div class="controls">
       <div class="cgroup">
         <h3>Is he at his desk?</h3>
@@ -381,12 +381,17 @@ input[type=range]{width:150px;accent-color:var(--live)}
         </div>
         <div class="creadout" id="roClock"></div>
       </div>
+      <div class="cgroup">
+        <h3>Other friends on the Wi-Fi</h3>
+        <div class="cbtns" id="ctlFriends"></div>
+        <div class="creadout" id="roFriends"></div>
+      </div>
     </div>
   </section>
 </main>
 
 <div class="foot">
-  Preview build 0.1 · The performance figures shown are estimates for an NVIDIA RTX A2000 8 GB and still need to be measured on the real machine.
+  Preview build 0.2 · Reply speeds and model load times are estimates for an NVIDIA RTX A2000 8 GB. They will be measured on Dara's laptop in Phase 5 and updated here.
 </div>
 
 <script>
@@ -401,6 +406,18 @@ const SIM_MINUTE = 1200;      // one simulated minute, in real milliseconds
 const IDLE_FREE_MS = 90000;   // shortened for the preview
 const GPU_HEAVY = ['Blender','DaVinci Resolve','Photoshop','Premiere Pro','After Effects','Unreal Engine','Cinema 4D','Steam','OBS Studio'];
 const APPS_ALL  = ['Blender','DaVinci Resolve','Photoshop','Premiere Pro','After Effects','Unreal Engine','Cinema 4D','Steam','OBS Studio'];
+
+const ME = { id:'ubuntu-pc', name:'Your PC (Ubuntu)', short:'You' };
+const FRIENDS = [
+  { id:'tunde-pc',   name:"Tunde's PC",   short:'Tunde' },
+  { id:'ada-laptop', name:"Ada's laptop", short:'Ada' }
+];
+const FRIEND_QS = [
+  'How much memory does a 7B model need on a graphics card?',
+  'Write a python function that splits a list into chunks',
+  'Draft a short email asking for the source files',
+  'Explain how a chat model writes its answers'
+];
 
 const CATALOG = [
   { id:'llama32-3b', name:'Llama 3.2 3B Instruct', quant:'Q4_K_M', fileGB:2.0, kvGB:0.25, tps:55,
@@ -417,14 +434,26 @@ const offered = () => S.host.installed.filter(id =>
   !S.host.disabled.includes(id) && vramFor(model(id), S.host.ctx) <= S.host.budget);
 const vramFor = (m, ctx) => m.fileGB + m.kvGB * (ctx / 4096) + 0.5;
 
+/* tokens are what the engine counts; words are what people understand */
+const WORDS_PER_TOKEN = 0.75;
+function approxWords(tokens){
+  const w = tokens * WORDS_PER_TOKEN, step = w < 1000 ? 50 : 500;
+  return (Math.round(w / step) * step).toLocaleString('en-US');
+}
+const toTokens = words => Math.round(words / WORDS_PER_TOKEN);
+const fmtNum = n => n.toLocaleString('en-US');
+const ordinal = n => n + (['th','st','nd','rd'][(n % 100 - 20) % 10] || ['th','st','nd','rd'][n % 100] || 'th');
+const whoName = id => id === ME.id ? ME.name : ((FRIENDS.find(f => f.id === id) || {}).name || 'A friend');
+const whoShort = id => id === ME.id ? 'you' : ((FRIENDS.find(f => f.id === id) || {}).short || 'a friend');
+
 /* ---------- state ---------- */
-let S, timer = null, streamTimer = null, loadTimer = null, scanTimer = null;
+let S, timer = null, streamTimer = null, loadTimer = null;
 
 function fresh() {
   return {
     host: {
       welcomed:false, tab:'share', sharing:false, resumeAfterRestart:false,
-      budget:6.5, ctx:4096,
+      budget:6.0, ctx:4096,
       pauseWhenInUse:true, awayMin:5,
       pauseApps:['Blender','DaVinci Resolve','Steam'],
       pauseOnGpuUse:true, tempPause:83, tempResume:75,
@@ -435,8 +464,9 @@ function fresh() {
       paired:[], pending:null, usage:{}, trayOpen:false, toasts:[]
     },
     world:{ atDesk:false, awayAt:Date.now() - 999999, apps:[], battery:false, heat:false, hour:15 },
-    rt:{ state:'off', reason:'', loaded:null, loading:null, temp:38, tempBlocked:false, lastReq:0, streaming:false, aborted:false },
-    client:{ tab:'devices', scanning:true, paired:false, model:'qwen25-7b', msgs:[], waitingCode:null, wantChat:false }
+    rt:{ state:'off', reason:'', clientReason:'', loaded:null, loading:null, loadPct:0, temp:38, tempBlocked:false,
+         lastReq:0, streaming:false, job:null, queue:[], benchNote:'' },
+    client:{ tab:'devices', paired:false, model:'qwen25-7b', msgs:[], waitingCode:null }
   };
 }
 
@@ -451,31 +481,40 @@ function awayLeft(){
   return Math.max(0, S.host.awayMin * SIM_MINUTE - (Date.now() - S.world.awayAt));
 }
 
+/* reason is what Dara sees; clientReason is what friends see.
+   Friends never learn which programs he has open. */
 function policy(){
   const h = S.host, w = S.world, rt = S.rt;
-  if (!h.sharing) return { state:'off', reason:'' };
-  if (h.pluggedOnly && w.battery) return { state:'paused', reason:'Your laptop is running on battery' };
+  const inUse = "He's using his computer";
+  if (!h.sharing) return { state:'off', reason:'', clientReason:'' };
+  if (h.pluggedOnly && w.battery)
+    return { state:'paused', reason:'Your laptop is running on battery', clientReason:'His laptop is on battery' };
   if (h.hoursMode === 'schedule' && !inHours())
-    return { state:'paused', reason:'Outside your sharing hours, ' + fmtH(h.hoursFrom) + ' to ' + fmtH(h.hoursTo) };
+    return { state:'paused', reason:'Outside your sharing hours, ' + fmtH(h.hoursFrom) + ' to ' + fmtH(h.hoursTo),
+             clientReason:'Outside the hours he shares' };
   const listed = w.apps.filter(a => h.pauseApps.includes(a));
-  if (listed.length) return { state:'paused', reason:listed[0] + ' is open' };
+  if (listed.length) return { state:'paused', reason:listed[0] + ' is open', clientReason:inUse };
   if (h.pauseOnGpuUse) {
     const heavy = w.apps.filter(a => GPU_HEAVY.includes(a));
-    if (heavy.length) return { state:'paused', reason:heavy[0] + ' is using your graphics card' };
+    if (heavy.length) return { state:'paused', reason:heavy[0] + ' is using your graphics card', clientReason:inUse };
   }
-  if (h.pauseWhenInUse && w.atDesk) return { state:'paused', reason:"You're using your computer" };
-  if (h.pauseWhenInUse && awayLeft() > 0)
-    return { state:'paused', reason:'Starts again in ' + Math.ceil(awayLeft() / SIM_MINUTE) + ' min', countdown:true };
-  if (rt.tempBlocked) return { state:'paused', reason:'Your graphics card is at ' + Math.round(rt.temp) + '°C' };
-  if (rt.streaming || rt.loading) return { state:'busy', reason:'' };
-  return { state:'available', reason:'' };
+  if (h.pauseWhenInUse && w.atDesk) return { state:'paused', reason:"You're using your computer", clientReason:inUse };
+  if (h.pauseWhenInUse && awayLeft() > 0) {
+    const n = Math.ceil(awayLeft() / SIM_MINUTE);
+    return { state:'paused', reason:'Starts again in ' + n + ' min', clientReason:'He just stepped away. Back in about ' + n + ' min', countdown:true };
+  }
+  if (rt.tempBlocked) return { state:'paused', reason:'Your graphics card is at ' + Math.round(rt.temp) + '°C',
+                               clientReason:'His graphics card is cooling down' };
+  if (rt.job) return { state:'busy', reason:'', clientReason:'' };
+  return { state:'available', reason:'', clientReason:'' };
 }
+const blockedNow = () => { const s = policy().state; return s === 'paused' || s === 'off'; };
 
 function tick(){
   const rt = S.rt, h = S.host, w = S.world;
 
   // temperature
-  let target = 40;
+  let target;
   if (rt.streaming || rt.loading) target = w.heat ? 89 : 74;
   else if (rt.loaded) target = w.heat ? 64 : 51;
   else target = w.heat ? 52 : 39;
@@ -486,37 +525,188 @@ function tick(){
 
   const p = policy();
   const wasPaused = rt.state === 'paused';
-  const prev = rt.state;
-  rt.state = p.state; rt.reason = p.reason; rt.countdown = !!p.countdown;
+  rt.state = p.state; rt.reason = p.reason; rt.clientReason = p.clientReason; rt.countdown = !!p.countdown;
 
-  // pausing or switching off frees the card
-  if ((p.state === 'paused' || p.state === 'off') && (rt.loaded || rt.loading || rt.streaming)) {
-    stopStream(true);
-    rt.loaded = null; rt.loading = null;
-    if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
+  // pausing or switching off frees the card and turns away everyone waiting
+  if ((p.state === 'paused' || p.state === 'off') && (rt.loaded || rt.loading || rt.job || rt.queue.length)) {
+    abortAll(p.state === 'off' ? 'Dara switched sharing off' : p.clientReason);
+    rt.loaded = null;
     if (p.state === 'paused' && !wasPaused) toast('Sharing paused', p.reason + '. Your graphics card is free again.');
   }
   if (rt.loaded && vramFor(model(rt.loaded), h.ctx) > h.budget) {
-    stopStream(true); rt.loaded = null;
+    abortAll('The model needed more memory than Dara allows');
+    rt.loaded = null;
     toast('Model unloaded', 'It needs more memory than your limit allows.');
   }
   // free the card after a quiet spell
-  if (rt.loaded && !rt.streaming && !rt.loading && Date.now() - rt.lastReq > IDLE_FREE_MS) {
+  if (rt.loaded && !rt.job && !rt.queue.length && Date.now() - rt.lastReq > IDLE_FREE_MS) {
     rt.loaded = null;
     toast('Graphics card freed', 'No one has used it for a while, so the model was unloaded.');
   }
-  const sig = [rt.state, rt.loading, S.host.sharing,
-               offered().join(',')].join('|');
-  if (sig !== lastClientSig) { lastClientSig = sig; if (!rt.streaming) renderClient(); }
+  pump();
+
+  const sig = [rt.state, rt.clientReason, rt.loading, h.sharing, offered().join(','), myPosition(),
+               myJob() ? myJob().phase : '', h.pending ? h.pending.id : ''].join('|');
+  if (sig !== lastClientSig) { lastClientSig = sig; if (!mineStreaming()) renderClient(); }
 
   syncLive();
-  if (hostNeedsRerender(prev)) renderHost();
+  if (hostNeedsRerender()) renderHost();
 }
-let lastStructural = '', lastClientSig = '';
-function hostNeedsRerender(prev){
-  const key = [S.rt.state, !!S.rt.loaded, !!S.rt.loading, S.host.pending ? 1 : 0, S.host.paired.length].join('|');
+let lastStructural = '', lastClientSig = '', lastFriendsSig = '';
+function hostNeedsRerender(){
+  const rt = S.rt;
+  const key = [rt.state, !!rt.loaded, !!rt.loading, S.host.pending ? 1 : 0, S.host.paired.map(p => p.id).join(','),
+               rt.job ? rt.job.who + rt.job.phase : '', rt.queue.map(j => j.who).join(',')].join('|');
   if (key !== lastStructural) { lastStructural = key; return S.host.tab === 'share' || S.host.tab === 'models' || S.host.tab === 'access'; }
   return false;
+}
+
+/* ---------- the queue: one answer at a time, first come first served ---------- */
+const myJob = () => (S.rt.job && S.rt.job.who === ME.id) ? S.rt.job : null;
+const mineStreaming = () => !!(myJob() && myJob().phase === 'streaming');
+function myPosition(){            // 0 = not waiting; 2 = one question ahead of yours
+  const i = S.rt.queue.findIndex(j => j.who === ME.id);
+  return i < 0 ? 0 : i + (S.rt.job ? 1 : 0) + 1;
+}
+const hasJob = id => (S.rt.job && S.rt.job.who === id) || S.rt.queue.some(j => j.who === id);
+
+function enqueue(who, question, modelId){
+  const job = { id:Math.random().toString(36).slice(2), who, question, model:modelId, phase:'queued', text:'' };
+  S.rt.queue.push(job);
+  S.rt.lastReq = Date.now();
+  pump();
+  return job;
+}
+function pump(){
+  const rt = S.rt;
+  if (rt.job || !rt.queue.length || blockedNow()) return;
+  const job = rt.queue.shift();
+  rt.job = job;
+  if (rt.loaded === job.model) startStream(job);
+  else startLoad(job);
+  renderClient(); renderHost();
+}
+
+function startLoad(job){
+  const m = model(job.model), rt = S.rt;
+  job.phase = 'loading';
+  rt.loaded = null;               // switching models stops the old engine process first
+  rt.loading = job.model; rt.loadPct = 0;
+  const total = m.fileGB * 1900;  // roughly 2.5 GB/s off an NVMe drive
+  const t0 = Date.now();
+  loadTimer = setInterval(() => {
+    if (rt.job !== job) { clearInterval(loadTimer); loadTimer = null; return; }
+    const pct = Math.min(100, Math.round((Date.now() - t0) / total * 100));
+    rt.loadPct = pct;
+    const lb = document.getElementById('loadbar');
+    if (lb) lb.textContent = `Loading ${m.name} onto his graphics card… ${pct}%`;
+    if (pct >= 100) {
+      clearInterval(loadTimer); loadTimer = null;
+      rt.loading = null; rt.loaded = job.model;
+      startStream(job);
+    }
+  }, 120);
+}
+
+const REPLIES = [
+  { k:['hello','hi','hey'], t:"Hello. I'm running on Dara's RTX A2000 over your home network. Ask me anything you'd normally ask a chat model." },
+  { k:['gpu','graphics','vram','card','memory'], t:"The A2000 has 8 GB of memory, which comfortably holds a 7B model at 4-bit along with the conversation. A 14B model would need roughly 10 GB, so it won't fit on this card. Splitting one model across two computers is possible but slow over a home network, which is why this setup keeps each model on a single machine." },
+  { k:['recipe','cook','dinner'], t:"A quick one: fry chopped onion and garlic in oil until soft, add a tin of tomatoes and a pinch of sugar, simmer fifteen minutes, then stir through cooked pasta with plenty of black pepper and whatever cheese you have. Works on a weeknight and uses one pan." },
+  { k:['python','code','script','function'], t:"Here's a small example:\n\ndef chunks(items, size):\n    for i in range(0, len(items), size):\n        yield items[i:i + size]\n\nIt splits a list into pieces of a fixed size and yields them one at a time, so you never hold more than one chunk in memory. Call it with list(chunks(rows, 100))." },
+  { k:['email','write','draft'], t:"Try this:\n\nHi Sam,\n\nThanks for sending the files over. I've had a look and the second version works better for what we discussed. Could you send the source file when you get a moment?\n\nBest,\nAlex\n\nShort, says what you want, and gives them one clear thing to do." },
+  { k:['explain','what is','how does'], t:"The short version: the model is a large set of numbers that predicts the next piece of text, one piece at a time, based on everything before it. Nothing is looked up and nothing is remembered between conversations. What makes it feel coherent is that each prediction takes the whole conversation so far into account." }
+];
+const FALLBACK = [
+  "That depends on what you're after. If you tell me a bit more about the situation, I can give you something more specific than a general answer.",
+  "Good question. There isn't one right answer, but the usual approach is to start with the simplest version that works, see where it breaks, and only add complexity when something actually forces you to.",
+  "I'd break that into three parts: what you already know, what you need to find out, and what you can safely ignore for now. Most of the difficulty usually sits in the middle part."
+];
+function replyFor(q){
+  const low = q.toLowerCase();
+  const hit = REPLIES.find(r => r.k.some(k => low.includes(k)));
+  return hit ? hit.t : FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
+}
+
+function startStream(job){
+  const rt = S.rt, m = model(job.model);
+  const mine = job.who === ME.id;
+  job.phase = 'streaming'; job.started = Date.now();
+  // other friends tend to ask for longer answers, which makes the queue easy to see
+  const full = mine ? replyFor(job.question) : replyFor(job.question) + '\n\n' + FALLBACK[1];
+  const words = full.split(/(\s+)/);
+  let i = 0;
+  if (mine) { job.msg = { role:'assistant', text:'', streaming:true }; S.client.msgs.push(job.msg); }
+  rt.streaming = true;
+  renderClient(); renderHost();
+  const perChunk = 1000 / (m.tps * WORDS_PER_TOKEN) / 2;   // words and gaps alternate
+  streamTimer = setInterval(() => {
+    if (rt.job !== job) { clearInterval(streamTimer); streamTimer = null; return; }
+    job.text += words[i]; i++;
+    if (mine) {
+      job.msg.text = job.text;
+      const node = document.getElementById('streamMsg');
+      if (node) node.innerHTML = escapeHtml(job.text) + '<span class="caret"></span>';
+      const box = document.getElementById('msgs'); if (box) box.scrollTop = box.scrollHeight;
+    }
+    if (i >= words.length) finishJob(job);
+  }, perChunk);
+}
+function finishJob(job){
+  const rt = S.rt;
+  if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+  if (job.msg) job.msg.streaming = false;
+  countUsage(job);
+  rt.streaming = false; rt.job = null; rt.lastReq = Date.now();
+  pump();
+  renderClient(); renderHost();
+}
+function countUsage(job){
+  if (!job.started) return;       // never reached the card
+  const u = S.host.usage[job.who] || (S.host.usage[job.who] = { reqs:0, tokIn:0, tokOut:0, gpuSec:0 });
+  const words = s => s.split(/\s+/).filter(Boolean).length;
+  u.reqs++; u.tokIn += toTokens(words(job.question)); u.tokOut += toTokens(words(job.text));
+  u.gpuSec += (Date.now() - job.started) / 1000;
+}
+
+/* cut off whatever is running and turn away everyone waiting */
+function abortAll(why){
+  const rt = S.rt;
+  if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
+  if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+  const turnedAway = [];
+  if (rt.job) {
+    const j = rt.job;
+    countUsage(j);
+    if (j.who === ME.id) {
+      if (j.msg) { j.msg.streaming = false; S.client.msgs.push({ role:'note', text:"Dara's computer stopped part way through. " + why + '.' }); }
+      else S.client.msgs.push({ role:'note', text:"Your question wasn't answered. " + why + '. Send it again when he\'s back.' });
+    } else turnedAway.push(whoShort(j.who));
+  }
+  rt.queue.forEach(j => {
+    if (j.who === ME.id) S.client.msgs.push({ role:'note', text:"Your question wasn't answered. " + why + '. Send it again when he\'s back.' });
+    else turnedAway.push(whoShort(j.who));
+  });
+  if (turnedAway.length) rt.benchNote = turnedAway.join(' and ') + (turnedAway.length === 1 ? ' was' : ' were') + ' told the same thing you were.';
+  rt.job = null; rt.queue = []; rt.streaming = false; rt.loading = null;
+}
+
+/* you pressed Stop or Cancel */
+function stopMine(){
+  const rt = S.rt, j = myJob();
+  if (j) {
+    if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
+    if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+    countUsage(j);
+    if (j.msg) j.msg.streaming = false;
+    if (j.phase === 'loading') rt.loading = null;
+    rt.job = null; rt.streaming = false; rt.lastReq = Date.now();
+    S.client.msgs.push({ role:'note', text: j.msg ? 'You stopped the answer.' : 'You cancelled your question.' });
+    pump();
+  } else if (myPosition()) {
+    rt.queue = rt.queue.filter(q => q.who !== ME.id);
+    S.client.msgs.push({ role:'note', text:'You cancelled your question before it started.' });
+  }
+  renderClient(); renderHost();
 }
 
 /* ---------- toasts ---------- */
@@ -545,13 +735,13 @@ function renderHost(){
 
 function screenWelcome(){
   return `<div class="welcome">
-    <h3>Lend your graphics card to a friend</h3>
-    <p class="sub">Your RTX A2000 sits idle most of the day. This app lets one friend on your Wi-Fi borrow it to run AI chat models, and only when you say so.</p>
+    <h3>Lend your graphics card to your friends</h3>
+    <p class="sub">Your RTX A2000 sits idle most of the day. This app lets friends on your Wi-Fi borrow it to run AI chat models, one question at a time, and only when you say so.</p>
     <div class="points">
       <div class="wpoint"><div class="n">1</div><div><div class="t">One switch, and it's yours again</div>
-        <div class="d">Turn sharing off and the app stops completely. Your graphics card is freed and your computer disappears from your friend's screen.</div></div></div>
+        <div class="d">Turn sharing off and the app stops completely. Your graphics card is freed and your computer disappears from your friends' screens.</div></div></div>
       <div class="wpoint"><div class="n">2</div><div><div class="t">It gets out of your way on its own</div>
-        <div class="d">Open Blender, unplug the charger, or just sit down at your desk, and sharing pauses without you doing anything.</div></div></div>
+        <div class="d">Open Blender, unplug the charger, or just sit down at your desk, and sharing pauses without you doing anything. Your friends see that you're busy, not what you opened.</div></div></div>
       <div class="wpoint"><div class="n">3</div><div><div class="t">It cannot reach your files</div>
         <div class="d">The app has no way to open, read, copy or send your files, and no one can see your screen or control your computer. It answers questions and nothing else.</div></div></div>
     </div>
@@ -566,11 +756,22 @@ function statusChip(){
   return `<span class="chip ${s}"><i></i>${label}</span>`;
 }
 
-function screenShare(){
+function friendRow(p){
   const h = S.host, rt = S.rt;
-  const m = rt.loaded ? model(rt.loaded) : null;
-  const used = m ? vramFor(m, h.ctx) : 0;
-  const friend = h.paired[0];
+  const u = h.usage[p.id] || { reqs:0, gpuSec:0 };
+  const pos = rt.queue.findIndex(j => j.who === p.id);
+  const now = rt.job && rt.job.who === p.id
+    ? `<span class="chip busy"><i></i>${rt.job.phase === 'loading' ? 'Loading model' : 'Being answered'}</span>`
+    : (pos >= 0 ? `<span class="chip paused"><i></i>Waiting, ${ordinal(pos + 2)} in line</span>` : '');
+  return `<div class="row" style="border-top:1px solid var(--rule)">
+    <div class="txt"><div class="t">${p.name}</div>
+      <div class="d">${u.reqs} question${u.reqs === 1 ? '' : 's'} answered · ${Math.round(u.gpuSec / 60 * 10) / 10} min of graphics card time</div></div>
+    <div class="ctl">${now}<button class="btn sm danger" data-act="unpair" data-id="${p.id}">Remove</button></div>
+  </div>`;
+}
+
+function screenShare(){
+  const h = S.host;
   return `
   <div class="bigswitch">
     <button class="sw" role="switch" aria-checked="${h.sharing}" data-act="toggle-share"><i></i></button>
@@ -592,18 +793,16 @@ function screenShare(){
       <div class="meter"><i id="roTempBar"></i></div></div>
     <div class="ro"><div class="k">Used this week</div>
       <div class="v mono" id="roMins">0<small> min</small></div>
-      <div class="hint" style="font-size:12px;color:var(--ink-faint);margin-top:7px">across ${h.paired.length} friend${h.paired.length===1?'':'s'}</div></div>
+      <div class="hint" style="font-size:12px;color:var(--ink-faint);margin-top:7px">across ${h.paired.length} friend${h.paired.length === 1 ? '' : 's'}</div></div>
   </div>
 
   <div class="rule"></div>
   <h4 class="hd">Right now</h4>
   <div id="rightNow" class="sub" style="margin-bottom:14px"></div>
 
-  ${friend ? `<div class="row" style="border-top:1px solid var(--rule)">
-    <div class="txt"><div class="t">${friend.name}</div>
-      <div class="d">${(h.usage[friend.id]||{reqs:0}).reqs} question${((h.usage[friend.id]||{reqs:0}).reqs)===1?'':'s'} answered · ${Math.round(((h.usage[friend.id]||{gpuSec:0}).gpuSec)/60*10)/10} min of graphics card time</div></div>
-    <div class="ctl"><button class="btn sm danger" data-act="unpair" data-id="${friend.id}">Remove</button></div>
-  </div>` : `<div class="banner calm">No one is allowed to connect yet. When someone asks, you'll get a message here with a code to check.</div>`}
+  ${h.paired.length
+    ? h.paired.map(friendRow).join('')
+    : `<div class="banner calm">No one is allowed to connect yet. When someone asks, you'll get a message here with a code to check.</div>`}
   `;
 }
 
@@ -620,15 +819,15 @@ function screenLimits(){
     <div class="ctl"><input type="range" min="2" max="7.5" step="0.5" value="${h.budget}" data-key="budget"><span class="val mono">${h.budget.toFixed(1)} GB</span></div></div>
 
   <div class="row"><div class="txt"><div class="t">How much of a conversation the model remembers</div>
-    <div class="d">Longer conversations use more memory on your card. ${h.ctx} words' worth uses about ${(m.kvGB*(h.ctx/4096)).toFixed(1)} GB.</div></div>
+    <div class="d">Measured in tokens, the small pieces of words a model reads. 1,000 tokens is about 750 words. Longer conversations use more memory on your card: ${fmtNum(h.ctx)} tokens uses about ${(m.kvGB * (h.ctx / 4096)).toFixed(1)} GB.</div></div>
     <div class="ctl"><select data-key="ctx">
-      ${[2048,4096,8192].map(c=>`<option value="${c}" ${c===h.ctx?'selected':''}>${c}</option>`).join('')}
+      ${[2048,4096,8192].map(c => `<option value="${c}" ${c === h.ctx ? 'selected' : ''}>${fmtNum(c)} tokens · about ${approxWords(c)} words</option>`).join('')}
     </select></div></div>
 
   <div class="row"><div class="txt"><div class="t">Longest answer it will give</div>
-    <div class="d">Stops very long answers from tying up your card.</div></div>
+    <div class="d">Stops very long answers from tying up your card while other friends wait.</div></div>
     <div class="ctl"><select data-key="maxReply">
-      ${[512,1024,2048].map(c=>`<option value="${c}" ${c===h.maxReply?'selected':''}>${c} words</option>`).join('')}
+      ${[512,1024,2048].map(c => `<option value="${c}" ${c === h.maxReply ? 'selected' : ''}>${fmtNum(c)} tokens · about ${approxWords(c)} words</option>`).join('')}
     </select></div></div>
 
   <div class="rule"></div>
@@ -642,12 +841,12 @@ function screenLimits(){
     <div class="ctl"><input type="range" min="1" max="15" step="1" value="${h.awayMin}" data-key="awayMin"><span class="val mono">${h.awayMin} min</span></div></div>` : ''}
 
   <div class="row"><div class="txt"><div class="t">Pause when these programs are open</div>
-    <div class="d">Add anything you don't want sharing to interfere with.</div>
+    <div class="d">Add anything you don't want sharing to interfere with. Friends only see that you're busy, never which program.</div>
     <div class="apps">
-      ${h.pauseApps.map(a=>`<span class="apptag ${S.world.apps.includes(a)?'live':''}">${a}<button data-act="app-remove" data-app="${a}" aria-label="Remove ${a}">×</button></span>`).join('')}
-      ${APPS_ALL.filter(a=>!h.pauseApps.includes(a)).length ? `<select data-key="app-add" style="font-size:12.5px">
+      ${h.pauseApps.map(a => `<span class="apptag ${S.world.apps.includes(a) ? 'live' : ''}">${a}<button data-act="app-remove" data-app="${a}" aria-label="Remove ${a}">×</button></span>`).join('')}
+      ${APPS_ALL.filter(a => !h.pauseApps.includes(a)).length ? `<select data-key="app-add" style="font-size:12.5px">
         <option value="">Add a program…</option>
-        ${APPS_ALL.filter(a=>!h.pauseApps.includes(a)).map(a=>`<option value="${a}">${a}</option>`).join('')}
+        ${APPS_ALL.filter(a => !h.pauseApps.includes(a)).map(a => `<option value="${a}">${a}</option>`).join('')}
       </select>` : ''}
     </div></div></div>
 
@@ -664,10 +863,10 @@ function screenLimits(){
     <div class="ctl"><button class="sw sm" role="switch" aria-checked="${h.pluggedOnly}" data-act="toggle" data-key="pluggedOnly"><i></i></button></div></div>
 
   <div class="row"><div class="txt"><div class="t">Hours when sharing is allowed</div>
-    <div class="d">${h.hoursMode==='any'?'Any time of day.':'Only between '+fmtH(h.hoursFrom)+' and '+fmtH(h.hoursTo)+'.'}</div></div>
+    <div class="d">${h.hoursMode === 'any' ? 'Any time of day.' : 'Only between ' + fmtH(h.hoursFrom) + ' and ' + fmtH(h.hoursTo) + '.'}</div></div>
     <div class="ctl"><select data-key="hoursMode">
-      <option value="any" ${h.hoursMode==='any'?'selected':''}>Any time</option>
-      <option value="schedule" ${h.hoursMode==='schedule'?'selected':''}>Evenings and nights</option>
+      <option value="any" ${h.hoursMode === 'any' ? 'selected' : ''}>Any time</option>
+      <option value="schedule" ${h.hoursMode === 'schedule' ? 'selected' : ''}>Evenings and nights</option>
     </select></div></div>
 
   <div class="row"><div class="txt"><div class="t">Keep sharing on after I restart</div>
@@ -690,13 +889,13 @@ function screenModels(){
     return `<div class="model">
       <div class="body">
         <div class="nm">${m.name}
-          ${isLoaded?'<span class="badge loaded">On the card now</span>':''}
-          ${isLoading?'<span class="badge loaded">Loading…</span>':''}
-          ${!fitsCard?'<span class="badge nofit">Too big for this card</span>':(!fitsBudget?'<span class="badge nofit">Over your memory limit</span>':'<span class="badge fits">Fits your card</span>')}
+          ${isLoaded ? '<span class="badge loaded">On the card now</span>' : ''}
+          ${isLoading ? '<span class="badge loaded">Loading…</span>' : ''}
+          ${!fitsCard ? '<span class="badge nofit">Too big for this card</span>' : (!fitsBudget ? '<span class="badge nofit">Over your memory limit</span>' : '<span class="badge fits">Fits your card</span>')}
         </div>
         <div class="ds">${m.desc}</div>
         ${h.installed.includes(m.id) && fitsCard && !fitsBudget ? '<div class="ds" style="color:var(--halt)">Not offered to friends until you raise your memory limit.</div>' : ''}
-        <div class="meta mono">${m.fileGB.toFixed(1)} GB file · needs ${need.toFixed(1)} GB on the card · about ${m.tps||'—'} words/sec · ${m.license}</div>
+        <div class="meta mono">${m.fileGB.toFixed(1)} GB file · needs ${need.toFixed(1)} GB on the card · ${m.tps ? 'about ' + m.tps + ' tokens/sec (estimate)' : 'won\'t run here'} · ${m.license}</div>
         ${dl ? `<div class="progress"><i style="width:${dl.pct}%"></i></div>
           <div class="meta mono">${dl.stage}</div>` : ''}
       </div>
@@ -705,13 +904,13 @@ function screenModels(){
           ? `<button class="sw sm" role="switch" aria-checked="${on}" data-act="model-toggle" data-id="${m.id}" title="Offer this model to friends"><i></i></button>
              <button class="btn sm danger" data-act="model-remove" data-id="${m.id}">Remove</button>`
           : (dl ? `<button class="btn sm" disabled>Adding…</button>`
-                : `<button class="btn sm ${fitsCard?'pri':''}" data-act="model-add" data-id="${m.id}" ${fitsCard?'':'disabled'}>Add</button>`)}
+                : `<button class="btn sm ${fitsCard ? 'pri' : ''}" data-act="model-add" data-id="${m.id}" ${fitsCard ? '' : 'disabled'}>Add</button>`)}
       </div>
     </div>`;
   };
   return `
   <h4 class="hd">Models on your machine</h4>
-  <p class="sub">These are the AI models your friend can choose from. Switch one off to keep it for yourself.</p>
+  <p class="sub">These are the AI models your friends can choose from. Switch one off to keep it for yourself. When two friends want different models, the card swaps between them, which adds a few seconds.</p>
   ${installed.map(card).join('') || '<div class="banner calm">You have no models yet. Add one below.</div>'}
   <div class="rule"></div>
   <h4 class="hd">Models you can add</h4>
@@ -723,12 +922,12 @@ function screenAccess(){
   const h = S.host;
   return `
   <h4 class="hd">Who can connect</h4>
-  <p class="sub">Only computers you've allowed. Everyone else on your Wi-Fi sees nothing but your name.</p>
+  <p class="sub">Only computers you've allowed. Everyone else on your Wi-Fi sees your laptop's name and whether sharing is ready, and nothing else. Friends you've allowed take turns: one question is answered at a time, in the order they arrive.</p>
   ${h.paired.length ? h.paired.map(p => {
     const u = h.usage[p.id] || { reqs:0, tokOut:0, gpuSec:0 };
     return `<div class="row" style="border-top:1px solid var(--rule)">
       <div class="txt"><div class="t">${p.name}</div>
-        <div class="d mono">${u.reqs} questions · ${u.tokOut} words written · ${Math.round(u.gpuSec/60*10)/10} min of card time</div></div>
+        <div class="d mono">${u.reqs} question${u.reqs === 1 ? '' : 's'} · about ${fmtNum(u.tokOut)} tokens written · ${Math.round(u.gpuSec / 60 * 10) / 10} min of card time</div></div>
       <div class="ctl"><button class="btn sm danger" data-act="unpair" data-id="${p.id}">Remove</button></div></div>`;
   }).join('') : '<div class="banner calm">No one yet.</div>'}
 
@@ -749,20 +948,23 @@ function screenAccess(){
       <li>Keep a copy of anyone's questions or answers</li>
     </ul></div>
   </div>
-  <p class="sub" style="margin-top:14px">Your friend's questions are answered on your machine. The app doesn't store them, and you never see them.</p>`;
+  <p class="sub" style="margin-top:14px">Your friends' questions are answered on your machine. The app doesn't store them, you never see them, and friends never see each other's.</p>`;
 }
 
 /* ---------- live patching ---------- */
 function syncLive(){
   const h = S.host, rt = S.rt;
+  const mine = myJob();
+  const otherBusy = rt.job && !mine;
   document.getElementById('link').dataset.state =
-    !S.client.paired ? 'none' : (rt.state === 'paused' ? 'paused' : (rt.streaming || rt.loading ? 'streaming' : (rt.state === 'off' ? 'none' : 'idle')));
+    !S.client.paired ? 'none' : (rt.state === 'paused' ? 'paused' : (mine ? 'streaming' : (rt.state === 'off' ? 'none' : 'idle')));
   document.getElementById('linkLabel').textContent =
     !h.sharing ? 'not connected' : !S.client.paired ? 'waiting to be allowed' :
-    rt.state === 'paused' ? 'paused' : rt.loading ? 'loading model' : rt.streaming ? 'answering' : 'connected';
+    rt.state === 'paused' ? 'paused' : (mine && mine.phase === 'loading') ? 'loading model' : mine ? 'answering you' :
+    myPosition() ? 'you\'re in line' : otherBusy ? 'answering another friend' : 'connected';
   const dot = document.getElementById('trayDot');
   if (dot) dot.style.background = { off:'var(--ink-faint)', available:'var(--live)', busy:'var(--win)', paused:'var(--wait)' }[rt.state];
-  document.getElementById('clientClock').textContent = String(S.world.hour).padStart(2,'0') + ':00';
+  document.getElementById('clientClock').textContent = String(S.world.hour).padStart(2, '0') + ':00';
 
   const sw = document.querySelector('[data-act="toggle-share"]');
   if (sw) sw.setAttribute('aria-checked', h.sharing);
@@ -781,8 +983,8 @@ function syncLive(){
     const tb = document.getElementById('roTempBar');
     tb.style.width = Math.min(100, (rt.temp - 30) / 60 * 100) + '%';
     tb.className = rt.temp >= h.tempPause ? 'hot' : rt.temp >= 70 ? 'warm' : '';
-    const total = Object.values(h.usage).reduce((a,u) => a + u.gpuSec, 0);
-    document.getElementById('roMins').innerHTML = (Math.round(total/60*10)/10) + '<small> min</small>';
+    const total = Object.values(h.usage).reduce((a, u) => a + u.gpuSec, 0);
+    document.getElementById('roMins').innerHTML = (Math.round(total / 60 * 10) / 10) + '<small> min</small>';
   }
 
   const chipHolder = document.querySelector('.bigswitch .chip');
@@ -791,18 +993,19 @@ function syncLive(){
   const ban = document.getElementById('hostBanner');
   if (ban) {
     ban.innerHTML = rt.state === 'paused'
-      ? `<div class="banner warn"><div><b>Sharing is paused</b>${rt.reason}. It starts again on its own.</div>
+      ? `<div class="banner warn"><div><b>Sharing is paused</b>${rt.reason}. It starts again on its own. Friends just see that you're busy.</div>
          <button class="act" data-act="go-limits">Change this rule</button></div>`
       : (rt.state === 'off' && h.sharing === false && h.paired.length
-        ? `<div class="banner calm">Sharing is switched off. ${h.paired[0].name} can't reach your computer.</div>` : '');
+        ? `<div class="banner calm">Sharing is switched off. None of your friends can reach your computer.</div>` : '');
   }
   const rn = document.getElementById('rightNow');
   if (rn) {
+    const waiting = rt.queue.length ? ' ' + rt.queue.length + (rt.queue.length === 1 ? ' more question is' : ' more questions are') + ' waiting.' : '';
     rn.textContent =
       rt.state === 'off' ? 'Nothing is running. The app is idle and your card is free.' :
       rt.state === 'paused' ? 'Nothing is running. Your card was freed when sharing paused.' :
-      rt.loading ? 'Loading ' + model(rt.loading).name + ' onto your card.' :
-      rt.streaming ? (h.paired[0] ? h.paired[0].name : 'Your friend') + ' is chatting with ' + model(rt.loaded).name + '.' :
+      (rt.job && rt.job.phase === 'loading') ? 'Loading ' + model(rt.loading).name + ' onto your card for ' + whoName(rt.job.who) + '.' + waiting :
+      rt.job ? whoName(rt.job.who) + ' is chatting with ' + model(rt.loaded).name + '.' + waiting :
       rt.loaded ? model(rt.loaded).name + ' is on your card, waiting for the next question.' :
       'Ready. Nothing is loaded until someone asks a question.';
   }
@@ -810,7 +1013,7 @@ function syncLive(){
   document.getElementById('roDesk').innerHTML =
     S.world.atDesk ? 'He is at the keyboard.' :
     (awayLeft() > 0 && S.host.pauseWhenInUse && S.host.sharing
-      ? 'Away. Sharing resumes in <b>' + Math.ceil(awayLeft()/SIM_MINUTE) + ' min</b>.'
+      ? 'Away. Sharing resumes in <b>' + Math.ceil(awayLeft() / SIM_MINUTE) + ' min</b>.'
       : 'Away from the laptop.');
   document.getElementById('roApps').innerHTML = S.world.apps.length
     ? 'Open: <b>' + S.world.apps.join(', ') + '</b>' : 'Nothing heavy is open.';
@@ -818,6 +1021,7 @@ function syncLive(){
     (S.world.battery ? 'On <b>battery</b>' : 'Plugged in') + ', card at <b>' + Math.round(rt.temp) + '°C</b>'
     + (S.world.heat ? '<br>Heat only builds while the card is answering something.' : '');
   document.getElementById('roClock').innerHTML = 'It is <b>' + fmtH(S.world.hour) + '</b> on his laptop.';
+  renderFriendsBench();
 }
 
 /* ============================================================
@@ -825,9 +1029,14 @@ function syncLive(){
    ============================================================ */
 function renderClient(){
   const el = document.getElementById('clientScreen');
+  const old = document.getElementById('chatInput');
+  const draft = old ? old.value : '', hadFocus = old && document.activeElement === old;
   document.querySelectorAll('#clientTabs .tab').forEach(t =>
     t.setAttribute('aria-selected', t.dataset.tab === S.client.tab));
   el.innerHTML = S.client.tab === 'devices' ? screenDevices() : screenChat();
+  const inp = document.getElementById('chatInput');
+  if (inp && draft) inp.value = draft;
+  if (inp && hadFocus && !inp.disabled) inp.focus();
   const msgs = document.getElementById('msgs');
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
   syncLive();
@@ -848,6 +1057,7 @@ function screenDevices(){
     </div>`;
   }
   const label = { available:'Ready', busy:'In use', paused:'Paused', off:'Off' }[rt.state];
+  const someoneElsePending = S.host.pending && S.host.pending.id !== ME.id;
   return `
   <h4 class="hd">Computers on your network</h4>
   <p class="sub">Found by looking around your Wi-Fi, the same way LocalSend does.</p>
@@ -855,22 +1065,23 @@ function screenDevices(){
     <div class="ic">D</div>
     <div class="body">
       <div class="nm">Dara's laptop</div>
-      <div class="ds">Windows · RTX A2000 8 GB · ${enabled.length} model${enabled.length===1?'':'s'} offered</div>
+      <div class="ds">Windows · RTX A2000 8 GB${S.client.paired ? ' · ' + enabled.length + ' model' + (enabled.length === 1 ? '' : 's') + ' offered' : ''}</div>
       <div style="margin-top:7px">
         <span class="chip ${rt.state}"><i></i>${label}</span>
-        ${rt.state==='paused'?`<span class="ds" style="margin-left:8px">${rt.reason}</span>`:''}
+        ${rt.state === 'paused' ? `<span class="ds" style="margin-left:8px">${rt.clientReason}</span>` : ''}
+        ${rt.state === 'busy' && !myJob() ? `<span class="ds" style="margin-left:8px">Answering another friend</span>` : ''}
       </div>
     </div>
     <div>${S.client.paired
       ? `<button class="btn pri sm" data-act="open-chat">Chat</button>`
       : (S.client.waitingCode
         ? `<button class="btn sm" disabled>Waiting…</button>`
-        : `<button class="btn sm" data-act="ask-connect">Ask to connect</button>`)}</div>
+        : `<button class="btn sm" data-act="ask-connect" ${someoneElsePending ? 'disabled title="Dara is looking at another request"' : ''}>Ask to connect</button>`)}</div>
   </div>
   ${S.client.waitingCode ? `<div class="banner info"><div><b>Check the code with Dara</b>
     Ask him to confirm he sees <span class="mono">${S.client.waitingCode}</span> on his screen, then say yes.</div></div>` : ''}
   <div class="rule"></div>
-  <p class="sub" style="margin:0">Only computers that have allowed you will let you chat. Everything stays on your own network.</p>`;
+  <p class="sub" style="margin:0">${S.client.paired ? 'Dara has allowed you. You take turns with his other friends, one question at a time.' : 'Until Dara allows you, you can only see his laptop\'s name and whether it\'s ready.'} Everything stays on your own network.</p>`;
 }
 
 function screenChat(){
@@ -883,41 +1094,51 @@ function screenChat(){
   if (!enabled.length) return `<div class="empty"><div class="big">No models available</div>
     <div>Dara has switched them all off, or they need more graphics card memory than he has allowed.</div></div>`;
   const blocked = rt.state === 'paused' || rt.state === 'off';
+  const mine = myJob(), pos = myPosition();
+  const waitingForMe = !!mine || pos > 0;
+  let queueBar = '';
+  if (pos) {
+    const ahead = pos - 1;
+    queueBar = `<div class="loadbar">You're ${ordinal(pos)} in line. ${ahead === 1 ? 'One question from another friend is' : ahead + ' questions from other friends are'} ahead of yours. Dara's card answers one at a time, so yours starts as soon as ${ahead === 1 ? 'it finishes' : 'they finish'}.</div>`;
+  }
   return `<div class="chatwrap">
     <div class="chathead">
       <span class="who">Dara's laptop</span>
-      <select data-key="client-model" ${rt.streaming?'disabled':''}>
-        ${enabled.map(id=>`<option value="${id}" ${id===c.model?'selected':''}>${model(id).name}</option>`).join('')}
+      <select data-key="client-model" ${waitingForMe ? 'disabled' : ''}>
+        ${enabled.map(id => `<option value="${id}" ${id === c.model ? 'selected' : ''}>${model(id).name}</option>`).join('')}
       </select>
       <span style="margin-left:auto">${statusChip()}</span>
     </div>
     <div class="msgs" id="msgs">
-      ${rt.loading ? `<div class="loadbar mono" id="loadbar">Loading ${model(rt.loading).name} onto his graphics card… ${S.rt.loadPct||0}%</div>` : ''}
-      ${blocked ? `<div class="banner warn" style="margin:0"><div><b>${rt.state==='off'?'Dara has switched sharing off':'Dara\'s computer is busy'}</b>${rt.state==='off'?'Nothing you send will get through until he turns it back on.':rt.reason+'. It will come back on its own.'}</div></div>` : ''}
-      ${c.msgs.length===0 && !blocked ? `<div class="empty" style="padding:26px 10px"><div class="big">Ask anything</div>
-        <div>The first question takes a few seconds longer while the model loads onto his card.</div></div>` : ''}
-      ${c.msgs.map(m => m.role==='note'
+      ${blocked ? `<div class="banner warn" style="margin:0"><div><b>${rt.state === 'off' ? 'Dara has switched sharing off' : 'Dara has paused sharing'}</b>${rt.state === 'off' ? 'Nothing you send will get through until he turns it back on.' : rt.clientReason + '. It will come back on its own.'}</div></div>` : ''}
+      ${c.msgs.length === 0 && !blocked ? `<div class="empty" style="padding:26px 10px"><div class="big">Ask anything</div>
+        <div>The first question takes a few seconds longer while the model loads onto his card. If another friend is already asking, you'll wait your turn.</div></div>` : ''}
+      ${c.msgs.map(m => m.role === 'note'
         ? `<div class="banner calm" style="margin:0;font-size:12.5px">${m.text}</div>`
-        : `<div class="msg ${m.role==='user'?'me':'ai'}"${m.streaming?' id="streamMsg"':''}>${escapeHtml(m.text)}${m.streaming?'<span class="caret"></span>':''}</div>`).join('')}
+        : `<div class="msg ${m.role === 'user' ? 'me' : 'ai'}"${m.streaming ? ' id="streamMsg"' : ''}>${escapeHtml(m.text)}${m.streaming ? '<span class="caret"></span>' : ''}</div>`).join('')}
+      ${queueBar}
+      ${mine && mine.phase === 'loading' ? `<div class="loadbar mono" id="loadbar">Loading ${model(mine.model).name} onto his graphics card… ${rt.loadPct || 0}%</div>` : ''}
     </div>
     <div class="composer">
-      <input id="chatInput" placeholder="${blocked?'Waiting for Dara\'s computer…':'Type a question'}" ${blocked||rt.streaming?'disabled':''}>
-      ${rt.streaming
-        ? `<button class="btn danger" data-act="stop">Stop</button>`
-        : `<button class="btn pri" data-act="send" ${blocked?'disabled':''}>Send</button>`}
+      <input id="chatInput" placeholder="${blocked ? 'Waiting for Dara\'s computer…' : 'Type a question'}" ${blocked || waitingForMe ? 'disabled' : ''}>
+      ${waitingForMe
+        ? `<button class="btn danger" data-act="stop">${mine && mine.phase === 'streaming' ? 'Stop' : 'Cancel'}</button>`
+        : `<button class="btn pri" data-act="send" ${blocked ? 'disabled' : ''}>Send</button>`}
     </div>
   </div>`;
 }
-const escapeHtml = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const escapeHtml = s => s.replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
 
 /* ============================================================
    ACTIONS
    ============================================================ */
-function askConnect(){
-  const code = String(Math.floor(100000 + Math.random()*900000));
-  S.client.waitingCode = code;
-  S.host.pending = { id:'ubuntu-pc', name:'Your PC (Ubuntu)', code };
+function requestPairing(who){
+  if (S.host.pending) return false;
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  S.host.pending = { id:who.id, name:who.name, code };
+  if (who.id === ME.id) S.client.waitingCode = code;
   renderClient(); renderHost(); renderPairModal();
+  return true;
 }
 function renderPairModal(){
   const old = document.getElementById('pairModal');
@@ -941,104 +1162,13 @@ function renderPairModal(){
 
 function send(){
   const input = document.getElementById('chatInput');
+  if (!input || input.disabled) return;
   const text = (input.value || '').trim();
-  if (!text) return;
+  if (!text || myJob() || myPosition()) return;
   input.value = '';
   S.client.msgs.push({ role:'user', text });
-  S.rt.lastReq = Date.now();
-  const need = S.client.model;
-  if (S.rt.loaded !== need) startLoad(need, () => startStream(text));
-  else startStream(text);
-  renderClient();
-}
-
-function startLoad(id, then){
-  const m = model(id);
-  S.rt.loading = id; S.rt.loadPct = 0;
-  const total = m.fileGB * 1900;   // roughly 2.5 GB/s off an NVMe drive
-  const t0 = Date.now();
-  renderClient();
-  loadTimer = setInterval(() => {
-    if (S.rt.loading !== id) { clearInterval(loadTimer); loadTimer = null; return; }
-    const pct = Math.min(100, Math.round((Date.now()-t0)/total*100));
-    S.rt.loadPct = pct;
-    const lb = document.getElementById('loadbar');
-    if (lb) lb.textContent = `Loading ${m.name} onto his graphics card… ${pct}%`;
-    if (pct >= 100) {
-      clearInterval(loadTimer); loadTimer = null;
-      S.rt.loading = null; S.rt.loaded = id;
-      renderClient(); renderHost();
-      then();
-    }
-  }, 120);
-}
-
-const REPLIES = [
-  { k:['hello','hi','hey'], t:"Hello. I'm running on Dara's RTX A2000 over your home network. Ask me anything you'd normally ask a chat model." },
-  { k:['gpu','graphics','vram','card'], t:"The A2000 has 8 GB of memory, which comfortably holds a 7B model at 4-bit along with the conversation. A 14B model would need roughly 10 GB, so it won't fit on this card. Splitting one model across two computers is possible but slow over a home network, which is why this setup keeps each model on a single machine." },
-  { k:['recipe','cook','dinner'], t:"A quick one: fry chopped onion and garlic in oil until soft, add a tin of tomatoes and a pinch of sugar, simmer fifteen minutes, then stir through cooked pasta with plenty of black pepper and whatever cheese you have. Works on a weeknight and uses one pan." },
-  { k:['python','code','script','function'], t:"Here's a small example:\n\ndef chunks(items, size):\n    for i in range(0, len(items), size):\n        yield items[i:i + size]\n\nIt splits a list into pieces of a fixed size and yields them one at a time, so you never hold more than one chunk in memory. Call it with list(chunks(rows, 100))." },
-  { k:['email','write','draft'], t:"Try this:\n\nHi Sam,\n\nThanks for sending the files over. I've had a look and the second version works better for what we discussed. Could you send the source file when you get a moment?\n\nBest,\nAlex\n\nShort, says what you want, and gives them one clear thing to do." },
-  { k:['explain','what is','how does'], t:"The short version: the model is a large set of numbers that predicts the next piece of text, one piece at a time, based on everything before it. Nothing is looked up and nothing is remembered between conversations. What makes it feel coherent is that each prediction takes the whole conversation so far into account." }
-];
-const FALLBACK = [
-  "That depends on what you're after. If you tell me a bit more about the situation, I can give you something more specific than a general answer.",
-  "Good question. There isn't one right answer, but the usual approach is to start with the simplest version that works, see where it breaks, and only add complexity when something actually forces you to.",
-  "I'd break that into three parts: what you already know, what you need to find out, and what you can safely ignore for now. Most of the difficulty usually sits in the middle part."
-];
-function replyFor(q){
-  const low = q.toLowerCase();
-  const hit = REPLIES.find(r => r.k.some(k => low.includes(k)));
-  return hit ? hit.t : FALLBACK[Math.floor(Math.random()*FALLBACK.length)];
-}
-
-function startStream(question){
-  const m = model(S.rt.loaded);
-  S.rt.streamStart = Date.now(); S.rt.streamQ = question;
-  const full = replyFor(question);
-  const words = full.split(/(\s+)/);
-  let i = 0;
-  const msg = { role:'assistant', text:'', streaming:true };
-  S.client.msgs.push(msg);
-  S.rt.streaming = true; S.rt.aborted = false;
-  const started = Date.now();
+  enqueue(ME.id, text, S.client.model);
   renderClient(); renderHost();
-  const perChunk = 1000 / (m.tps / 1.35) / 2;   // words and gaps alternate
-  streamTimer = setInterval(() => {
-    if (!S.rt.streaming) { clearInterval(streamTimer); streamTimer = null; return; }
-    msg.text += words[i]; i++;
-    const node = document.getElementById('streamMsg');
-    if (node) node.innerHTML = escapeHtml(msg.text) + '<span class="caret"></span>';
-    const box = document.getElementById('msgs'); if (box) box.scrollTop = box.scrollHeight;
-    if (i >= words.length) {
-      clearInterval(streamTimer); streamTimer = null;
-      finishStream(started, full, question);
-    }
-  }, perChunk);
-}
-function finishStream(started, full, question){
-  const msg = S.client.msgs[S.client.msgs.length-1];
-  if (msg) msg.streaming = false;
-  S.rt.streaming = false; S.rt.lastReq = Date.now();
-  countUsage(started, question, full);
-  renderClient(); renderHost();
-}
-function countUsage(started, question, written){
-  const u = S.host.usage['ubuntu-pc'] || (S.host.usage['ubuntu-pc'] = { reqs:0, tokIn:0, tokOut:0, gpuSec:0 });
-  u.reqs++; u.tokIn += question.split(/\s+/).filter(Boolean).length;
-  u.tokOut += written.split(/\s+/).filter(Boolean).length;
-  u.gpuSec += (Date.now()-started)/1000;
-}
-function stopStream(silent){
-  if (!S.rt.streaming) return;
-  const partial = S.client.msgs[S.client.msgs.length-1];
-  countUsage(S.rt.streamStart, S.rt.streamQ || '', partial && partial.text ? partial.text : '');
-  S.rt.streaming = false;
-  if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
-  const msg = S.client.msgs[S.client.msgs.length-1];
-  if (msg) msg.streaming = false;
-  if (silent) S.client.msgs.push({ role:'note', text:'Dara\'s computer stopped part way through: ' + (S.rt.reason || 'sharing was switched off') + '.' });
-  if (!silent) renderClient();
 }
 
 function startDownload(id){
@@ -1047,9 +1177,9 @@ function startDownload(id){
   renderHost();
   const t0 = Date.now(), total = m.fileGB * 1000 * 2.2; // about 45 MB/s on home broadband, shortened
   const iv = setInterval(() => {
-    const pct = Math.min(100, (Date.now()-t0)/total*100);
-    const mb = (m.fileGB*1024*pct/100).toFixed(0);
-    S.host.downloads[id] = { pct, stage: pct<100 ? `${mb} MB of ${(m.fileGB*1024).toFixed(0)} MB · 45 MB/s` : 'Checking the file…' };
+    const pct = Math.min(100, (Date.now() - t0) / total * 100);
+    const mb = (m.fileGB * 1024 * pct / 100).toFixed(0);
+    S.host.downloads[id] = { pct, stage: pct < 100 ? `${mb} MB of ${(m.fileGB * 1024).toFixed(0)} MB · 45 MB/s` : 'Checking the file…' };
     if (S.host.tab === 'models') renderHost();
     if (pct >= 100) {
       clearInterval(iv);
@@ -1057,10 +1187,26 @@ function startDownload(id){
         delete S.host.downloads[id];
         S.host.installed.push(id);
         toast('Model added', m.name + ' is ready and checked.');
-        renderHost();
+        renderHost(); renderClient();
       }, 1400);
     }
   }, 150);
+}
+
+function unpair(id){
+  const rt = S.rt;
+  S.host.paired = S.host.paired.filter(p => p.id !== id);
+  rt.queue = rt.queue.filter(j => j.who !== id);
+  if (rt.job && rt.job.who === id) {
+    if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
+    if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+    countUsage(rt.job);
+    if (rt.job.phase === 'loading') rt.loading = null;
+    rt.job = null; rt.streaming = false;
+  }
+  if (id === ME.id) { S.client.paired = false; S.client.msgs = []; S.client.tab = 'devices'; }
+  pump();
+  renderHost(); renderClient();
 }
 
 /* ============================================================
@@ -1086,35 +1232,38 @@ document.addEventListener('click', e => {
   else if (a === 'app-remove') { S.host.pauseApps = S.host.pauseApps.filter(x => x !== t.dataset.app); renderHost(); }
   else if (a === 'model-toggle') {
     const id = t.dataset.id;
-    S.host.disabled = S.host.disabled.includes(id) ? S.host.disabled.filter(x=>x!==id) : S.host.disabled.concat(id);
+    S.host.disabled = S.host.disabled.includes(id) ? S.host.disabled.filter(x => x !== id) : S.host.disabled.concat(id);
     renderHost(); renderClient();
   }
   else if (a === 'model-remove') {
     const id = t.dataset.id;
-    if (S.rt.loaded === id) S.rt.loaded = null;
+    if (S.rt.loaded === id && !S.rt.job) S.rt.loaded = null;
     S.host.installed = S.host.installed.filter(x => x !== id);
     renderHost(); renderClient();
   }
   else if (a === 'model-add') startDownload(t.dataset.id);
-  else if (a === 'ask-connect') askConnect();
+  else if (a === 'ask-connect') requestPairing(ME);
   else if (a === 'pair-allow') {
-    S.host.paired = [{ id:'ubuntu-pc', name:'Your PC (Ubuntu)' }];
-    S.host.usage['ubuntu-pc'] = { reqs:0, tokIn:0, tokOut:0, gpuSec:0 };
-    S.host.pending = null; S.client.waitingCode = null; S.client.paired = true;
-    S.client.tab = 'chat';
+    const p = S.host.pending;
+    S.host.paired.push({ id:p.id, name:p.name });
+    S.host.usage[p.id] = S.host.usage[p.id] || { reqs:0, tokIn:0, tokOut:0, gpuSec:0 };
+    S.host.pending = null;
+    if (p.id === ME.id) { S.client.waitingCode = null; S.client.paired = true; S.client.tab = 'chat'; }
     renderPairModal(); renderHost(); renderClient();
-    toast('Connected', 'Your PC (Ubuntu) can now ask questions.');
+    toast('Connected', p.name + ' can now ask questions.');
   }
-  else if (a === 'pair-deny') { S.host.pending = null; S.client.waitingCode = null; renderPairModal(); renderHost(); renderClient(); }
-  else if (a === 'unpair') {
-    S.host.paired = []; S.client.paired = false; S.client.msgs = []; S.client.tab = 'devices';
-    stopStream(false); S.rt.loaded = null;
-    renderHost(); renderClient();
+  else if (a === 'pair-deny') {
+    const p = S.host.pending;
+    S.host.pending = null;
+    if (p && p.id === ME.id) S.client.waitingCode = null;
+    else if (p) S.rt.benchNote = p.name + ' was turned away.';
+    renderPairModal(); renderHost(); renderClient();
   }
-  else if (a === 'open-chat') { S.client.tab = 'chat'; renderClient(); setTimeout(()=>{const i=document.getElementById('chatInput'); if(i) i.focus();},30); }
+  else if (a === 'unpair') unpair(t.dataset.id);
+  else if (a === 'open-chat') { S.client.tab = 'chat'; renderClient(); setTimeout(() => { const i = document.getElementById('chatInput'); if (i) i.focus(); }, 30); }
   else if (a === 'go-devices') { S.client.tab = 'devices'; renderClient(); }
   else if (a === 'send') send();
-  else if (a === 'stop') { stopStream(false); S.client.msgs.push({ role:'note', text:'You stopped the answer.' }); renderClient(); }
+  else if (a === 'stop') stopMine();
   else if (a === 'add-ip') alert('In the finished app this asks for an address like 192.168.1.42, for networks where computers cannot find each other automatically.');
   else if (a === 'tray') { S.host.trayOpen = !S.host.trayOpen; renderTray(); }
   else if (a === 'tray-settings') { S.host.trayOpen = false; S.host.tab = 'limits'; S.host.welcomed = true; renderTray(); renderHost(); }
@@ -1124,7 +1273,12 @@ document.addEventListener('click', e => {
 
 function setSharing(on){
   S.host.sharing = on;
-  if (!on) { stopStream(true); S.rt.loaded = null; S.rt.loading = null; S.client.waitingCode = null; }
+  if (!on) {
+    abortAll('Dara switched sharing off');
+    S.rt.loaded = null;
+    if (S.host.pending) { S.host.pending = null; renderPairModal(); }
+    S.client.waitingCode = null;
+  }
   else S.world.awayAt = Math.min(S.world.awayAt, Date.now());
   renderHost(); renderClient();
 }
@@ -1133,7 +1287,7 @@ function renderTray(){
   if (!S.host.trayOpen) return;
   const el = document.createElement('div');
   el.className = 'traymenu'; el.id = 'trayMenu';
-  el.innerHTML = `<button data-act="tray-share">${S.host.sharing?'Stop sharing':'Start sharing'}</button>
+  el.innerHTML = `<button data-act="tray-share">${S.host.sharing ? 'Stop sharing' : 'Start sharing'}</button>
     <button data-act="tray-settings">Open settings</button>
     <div class="sep"></div>
     <button data-act="tray-quit">Quit GPU Share</button>`;
@@ -1147,13 +1301,13 @@ document.addEventListener('input', e => {
     S.host[k] = parseFloat(e.target.value);
     if (k === 'tempPause') S.host.tempResume = S.host.tempPause - 8;
     const v = e.target.parentElement.querySelector('.val');
-    if (v) v.textContent = k === 'budget' ? S.host.budget.toFixed(1)+' GB' : k === 'awayMin' ? S.host.awayMin+' min' : S.host.tempPause+'°C';
+    if (v) v.textContent = k === 'budget' ? S.host.budget.toFixed(1) + ' GB' : k === 'awayMin' ? S.host.awayMin + ' min' : S.host.tempPause + '°C';
   }
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset.key;
   if (!k) return;
-  if (k === 'ctx' || k === 'maxReply') { S.host[k] = parseInt(e.target.value,10); renderHost(); }
+  if (k === 'ctx' || k === 'maxReply') { S.host[k] = parseInt(e.target.value, 10); renderHost(); }
   else if (k === 'hoursMode') { S.host.hoursMode = e.target.value; renderHost(); }
   else if (k === 'app-add' && e.target.value) { S.host.pauseApps.push(e.target.value); renderHost(); }
   else if (k === 'client-model') { S.client.model = e.target.value; }
@@ -1169,11 +1323,57 @@ function bench(){
   const apps = ['Blender','Photoshop','Steam','Chrome'];
   document.getElementById('ctlApps').innerHTML = apps.map(a =>
     `<button class="cbtn" data-app="${a}" aria-pressed="${S.world.apps.includes(a)}">${a}</button>`).join('');
+  lastFriendsSig = '';
+  renderFriendsBench();
 }
+function renderFriendsBench(){
+  const h = S.host, rt = S.rt;
+  const btns = FRIENDS.map(f => {
+    const paired = h.paired.some(p => p.id === f.id);
+    if (!paired) {
+      const waiting = h.pending && h.pending.id === f.id;
+      return { f, label: waiting ? f.short + ' is waiting for Dara' : f.short + ' asks to connect',
+               act:'connect', off: waiting || !!h.pending || !h.sharing };
+    }
+    const busy = hasJob(f.id);
+    return { f, label: busy ? f.short + "'s question is in" : f.short + ' asks a question', act:'ask', off: busy };
+  });
+  const lineup = [];
+  if (rt.job) lineup.push('Answering <b>' + whoShort(rt.job.who) + '</b>');
+  if (rt.queue.length) lineup.push('waiting: <b>' + rt.queue.map(j => whoShort(j.who)).join(', ') + '</b>');
+  const readout = (lineup.length ? lineup.join(', ') + '.' : 'No one is asking right now.')
+    + (!h.sharing ? '<br>Turn sharing on first, so they can find his laptop.' : '')
+    + (rt.benchNote ? '<br>' + rt.benchNote : '');
+  const sig = JSON.stringify(btns.map(b => [b.label, b.off])) + readout;
+  if (sig === lastFriendsSig) return;
+  lastFriendsSig = sig;
+  document.getElementById('ctlFriends').innerHTML = btns.map(b =>
+    `<button class="cbtn" data-friend="${b.f.id}" data-fact="${b.act}" ${b.off ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>${b.label}</button>`).join('');
+  document.getElementById('roFriends').innerHTML = readout;
+}
+document.getElementById('ctlFriends').addEventListener('click', e => {
+  const b = e.target.closest('[data-friend]'); if (!b || b.disabled) return;
+  const f = FRIENDS.find(x => x.id === b.dataset.friend);
+  S.rt.benchNote = '';
+  if (b.dataset.fact === 'connect') {
+    if (!requestPairing(f)) S.rt.benchNote = 'Dara is already looking at another request.';
+  } else {
+    const p = policy();
+    const models = offered();
+    if (p.state === 'paused' || p.state === 'off') S.rt.benchNote = f.short + ' was told: ' + (p.clientReason || 'sharing is off') + '.';
+    else if (!models.length) S.rt.benchNote = 'Dara isn\'t offering any models, so ' + f.short + ' can\'t ask.';
+    else {
+      const q = FRIEND_QS[Math.floor(Math.random() * FRIEND_QS.length)];
+      enqueue(f.id, q, models[Math.floor(Math.random() * models.length)]);
+    }
+  }
+  lastFriendsSig = '';
+  syncLive(); renderHost(); renderClient();
+});
 document.getElementById('ctlApps').addEventListener('click', e => {
   const b = e.target.closest('[data-app]'); if (!b) return;
   const a = b.dataset.app;
-  S.world.apps = S.world.apps.includes(a) ? S.world.apps.filter(x=>x!==a) : S.world.apps.concat(a);
+  S.world.apps = S.world.apps.includes(a) ? S.world.apps.filter(x => x !== a) : S.world.apps.concat(a);
   bench(); renderHost(); renderClient();
 });
 document.getElementById('ctlAtDesk').addEventListener('click', e => {
@@ -1193,7 +1393,7 @@ document.getElementById('ctlHeat').addEventListener('click', e => {
   e.currentTarget.textContent = S.world.heat ? 'Clear the fan vent' : 'Block the fan vent';
 });
 document.querySelectorAll('[data-hour]').forEach(b => b.addEventListener('click', () => {
-  S.world.hour = parseInt(b.dataset.hour,10);
+  S.world.hour = parseInt(b.dataset.hour, 10);
   document.querySelectorAll('[data-hour]').forEach(x => x.setAttribute('aria-pressed', x === b));
 }));
 
@@ -1204,8 +1404,9 @@ document.getElementById('btnTour').addEventListener('click', () => alert(
   "2. On your PC, his laptop appears. Press Ask to connect.\n" +
   "3. Back on his laptop, check the code and press Allow.\n" +
   "4. Ask a question. The first one waits while the model loads onto his card.\n" +
-  "5. While it's answering, use the test bench to open Blender, or press He's using the laptop.\n\n" +
-  "Watch what happens to his graphics card memory, and what you see on your side."
+  "5. In the test bench, let Tunde connect and ask a question, then ask one yourself straight after. You'll see where you are in line.\n" +
+  "6. While someone is being answered, open Blender or press He's using the laptop.\n\n" +
+  "Watch what happens to his graphics card memory, and what each side sees."
 ));
 
 /* ---------- theme ---------- */
@@ -1226,9 +1427,10 @@ applyTheme(theme);
 /* ---------- boot ---------- */
 function boot(){
   if (timer) clearInterval(timer);
-  if (streamTimer) clearInterval(streamTimer);
-  if (loadTimer) clearInterval(loadTimer);
+  if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+  if (loadTimer) { clearInterval(loadTimer); loadTimer = null; }
   S = fresh();
+  lastStructural = ''; lastClientSig = ''; lastFriendsSig = '';
   document.querySelectorAll('[data-hour]').forEach(x => x.setAttribute('aria-pressed', x.dataset.hour === '15'));
   const d = document.getElementById('ctlAtDesk'); d.setAttribute('aria-pressed', false); d.textContent = "He's using the laptop";
   const b = document.getElementById('ctlBattery'); b.setAttribute('aria-pressed', false); b.textContent = 'Unplug the charger';

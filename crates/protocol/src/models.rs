@@ -14,13 +14,33 @@ pub struct CatalogEntry {
     pub quantization: String,
     pub license: String,
     pub default_context: u32,
+    /// Shape for the VRAM estimate until the GGUF header parser (`P6-T5`) reads it from the
+    /// file itself. Fields below are additions to the spec §6.5 example; all optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<ModelShape>,
+    /// Estimated tokens per second on the reference card (RTX A2000), for display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tps_estimate: Option<u32>,
+    /// Extra `llama-server` arguments this model needs (e.g. turning Qwen3's thinking off).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub engine_args: Vec<String>,
+    /// Tiny models for development; hidden in release builds.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dev_only: bool,
+}
+
+impl CatalogEntry {
+    /// The file name the model is saved under in the app's models folder.
+    pub fn file_name(&self) -> String {
+        format!("{}.gguf", self.id)
+    }
 }
 
 /// The handful of GGUF header fields the VRAM estimate needs (spec §6.5).
 /// Reading these out of a real file is `P6-T5`; this struct is the stable
 /// interface between that parser and the estimate below, so the estimate
 /// can be tested without a real GGUF file.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ModelShape {
     pub layers: u32,
     pub kv_heads: u32,
@@ -49,6 +69,14 @@ pub fn estimate_vram_bytes(file_size_bytes: u64, shape: ModelShape, context: u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_spec_example_entry_still_parses() {
+        let e: CatalogEntry = serde_json::from_str(include_str!("../tests/fixtures/catalog_entry.json")).unwrap();
+        assert_eq!(e.default_context, 4096);
+        assert_eq!(e.shape, None);
+        assert!(!e.dev_only);
+    }
 
     /// Rough shape of a 7-8B model, used only to sanity-check the formula's
     /// order of magnitude until `P5-T11` supplies real numbers to pin

@@ -1,20 +1,21 @@
 <script lang="ts">
-	// The visual wire between the host and client machines. Mirrors the prototype's
-	// #link element and syncLive()'s link state derivation.
-	import { hostBackend, clientBackend } from '../mock/backend.svelte';
+	// The wire between the two machines in the preview (the prototype's syncLive()).
+	import { clientBackend, hostBackend } from '../backend';
 
-	const h = hostBackend.host;
-	const c = clientBackend.client;
-	const rt = hostBackend.rt;
+	const h = hostBackend.view;
+	const c = clientBackend.view;
+
+	const remote = $derived(c.hosts[0]);
+	const paired = $derived(!!remote?.paired);
 
 	const state = $derived(
-		!c.paired
+		!paired
 			? 'none'
-			: rt.state === 'paused'
+			: h.state === 'paused'
 				? 'paused'
-				: rt.streaming || rt.loading
+				: c.turn && c.turn.phase !== 'queued'
 					? 'streaming'
-					: rt.state === 'off'
+					: h.state === 'off'
 						? 'none'
 						: 'idle'
 	);
@@ -22,15 +23,19 @@
 	const label = $derived(
 		!h.sharing
 			? 'not connected'
-			: !c.paired
+			: !paired
 				? 'waiting to be allowed'
-				: rt.state === 'paused'
+				: h.state === 'paused'
 					? 'paused'
-					: rt.loading
+					: c.turn?.phase === 'loading'
 						? 'loading model'
-						: rt.streaming
-							? 'answering'
-							: 'connected'
+						: c.turn?.phase === 'streaming'
+							? 'answering you'
+							: c.turn?.phase === 'queued'
+								? "you're in line"
+								: remote?.busyWithOther
+									? 'answering another friend'
+									: 'connected'
 	);
 </script>
 

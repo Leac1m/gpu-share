@@ -26,7 +26,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd apps/desktop
 npm ci
 npm run check        # svelte-check + tsc
+npm test             # vitest
 npm run build
+
+scripts/dev-engine.sh                                         # CPU llama-server + tiny model in .dev/
+cargo test -p host --test real_engine -- --ignored            # chat through the real engine
+cargo check --workspace --target x86_64-pc-windows-gnu        # Windows shims (needs mingw-w64)
+scripts/e2e/run.sh eth0                                       # two real apps, pair + chat (WebDriver)
+scripts/e2e/installed.sh eth0                                 # the installed .deb, Ubuntu to Ubuntu, real engine + model
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check on Windows.
@@ -35,10 +42,13 @@ CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check
 
 - `crates/protocol` — every message and API type shared by host and client. Change wire formats
   here first, with a golden JSON fixture.
-- `apps/desktop/src` — Svelte 5 (runes) UI. `src/lib/mock/backend.svelte.ts` is the mock behind the
-  `HostBackend` / `ClientBackend` interfaces; real implementations replace it without changing the
-  components.
-- `apps/desktop/src-tauri` — the Rust side of the app.
+- `crates/netcore` — per-install identity (certificate) and TLS pinned by fingerprint.
+- `crates/host` — Share mode: queue, clamping, engine supervisor, gatekeeper, usage store.
+- `crates/client` — Use mode: gatekeeper client, chat history, the client runtime.
+- `apps/desktop/src` — Svelte 5 (runes) UI. Screens read `HostView` / `ClientView` and call
+  `HostBackend` / `ClientBackend` (`src/lib/types.ts`). `src/lib/mock/` drives the browser preview,
+  `src/lib/real/` the Tauri app; `src/lib/backend.ts` picks one.
+- `apps/desktop/src-tauri` — wires the crates into Tauri commands and view events.
 - `docs/gpu-share-preview.html` — the original clickable prototype the Svelte app was ported from.
 
 ## Rules that are easy to break
@@ -54,6 +64,7 @@ CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check
 
 `scripts/cloud-setup.sh` installs the Tauri system libraries at session start (it does nothing
 locally). There is no GPU, no Windows, and no LAN peer in a cloud VM, so Phase 5 hardware work, the
-Windows shims and real multicast discovery cannot be verified there: build them behind traits,
+Windows shims, the NVIDIA side of Linux hosting (Phase 8) and real multicast discovery cannot be
+verified there: build them behind traits,
 test the pure logic, and leave the manual check unticked in the roadmap. `huggingface.co` is not
 reachable under the default network level (roadmap `P2-T1` note).

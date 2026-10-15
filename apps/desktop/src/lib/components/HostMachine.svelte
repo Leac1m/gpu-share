@@ -1,18 +1,14 @@
 <script lang="ts">
-	import { hostBackend } from '../mock/backend.svelte';
-	import type { HostTab } from '../types';
+	// The host's window in the preview: Dara's laptop with its tabs, tray and popups.
+	import { hostBackend } from '../backend';
+	import { ui, type HostTab } from '../ui.svelte';
 	import Machine from './Machine.svelte';
-	import WelcomeScreen from './WelcomeScreen.svelte';
-	import ShareScreen from './ShareScreen.svelte';
-	import LimitsScreen from './LimitsScreen.svelte';
-	import ModelsScreen from './ModelsScreen.svelte';
-	import AccessScreen from './AccessScreen.svelte';
+	import HostScreens from './HostScreens.svelte';
 	import Toasts from './Toasts.svelte';
 	import TrayMenu from './TrayMenu.svelte';
 	import PairModal from './PairModal.svelte';
 
-	const h = hostBackend.host;
-	const rt = hostBackend.rt;
+	const h = hostBackend.view;
 
 	const tabs = [
 		{ id: 'share', label: 'Share' },
@@ -22,34 +18,29 @@
 	];
 
 	const trayDotColor = $derived(
-		{ off: 'var(--ink-faint)', available: 'var(--live)', busy: 'var(--win)', paused: 'var(--wait)' }[rt.state]
+		{ off: 'var(--ink-faint)', available: 'var(--live)', busy: 'var(--win)', paused: 'var(--wait)' }[h.state]
 	);
+
+	function onTab(id: string) {
+		ui.hostTab = id as HostTab;
+		hostBackend.welcomeDone();
+	}
 </script>
 
 <Machine
 	os="windows"
-	title="Dara's laptop"
+	title={h.name}
 	osName="Windows 11 · RTX A2000 8 GB"
 	{tabs}
-	activeTab={h.tab}
-	onTab={(id) => hostBackend.setTab(id as HostTab)}
+	activeTab={ui.hostTab}
+	{onTab}
 	taskbarLabel="Windows"
 >
 	{#snippet screen()}
-		{#if !h.welcomed}
-			<WelcomeScreen />
-		{:else if h.tab === 'share'}
-			<ShareScreen />
-		{:else if h.tab === 'limits'}
-			<LimitsScreen />
-		{:else if h.tab === 'models'}
-			<ModelsScreen />
-		{:else if h.tab === 'access'}
-			<AccessScreen />
-		{/if}
+		<HostScreens />
 	{/snippet}
 	{#snippet taskbarRight()}
-		<button class="trayicon" onclick={() => hostBackend.trayToggle()}>
+		<button class="trayicon" onclick={() => (ui.trayOpen = !ui.trayOpen)}>
 			<span class="traydot" style="background:{trayDotColor}"></span> GPU Share
 		</button>
 	{/snippet}

@@ -1,67 +1,112 @@
 <script lang="ts">
-	import { clientBackend } from '../mock/backend.svelte';
+	import { clientBackend } from '../backend';
+	import { ui } from '../ui.svelte';
 	import StatusChip from './StatusChip.svelte';
 
-	const c = clientBackend.client;
-	const rt = clientBackend.rt;
-	const h = clientBackend.host;
+	const c = clientBackend.view;
 
-	const visible = $derived(h.sharing);
-	const enabled = $derived(clientBackend.offeredModels());
+	let ipOpen = $state(false);
+	let ip = $state('');
+	let ipError = $state('');
+	let ipBusy = $state(false);
 
-	function addByIp() {
-		alert(
-			'In the finished app this asks for an address like 192.168.1.42, for networks where computers cannot find each other automatically.'
-		);
+	async function addByIp() {
+		ipBusy = true;
+		ipError = (await clientBackend.addByIp(ip.trim())) ?? '';
+		ipBusy = false;
+		if (!ipError) {
+			ipOpen = false;
+			ip = '';
+		}
 	}
+
+	function openChat(id: string) {
+		clientBackend.openChat(id);
+		ui.clientTab = 'chat';
+	}
+
+	const pairingHost = $derived(c.hosts.find((h) => h.id === c.pairing?.hostId));
 </script>
 
-{#if !visible}
+{#snippet addIp()}
+	{#if ipOpen}
+		<div class="composer" style="border:0;padding:12px 0 0">
+			<input bind:value={ip} placeholder="An address like 192.168.1.42" onkeydown={(e) => e.key === 'Enter' && addByIp()} />
+			<button class="btn pri sm" disabled={ipBusy || !ip.trim()} onclick={addByIp}>{ipBusy ? 'Looking…' : 'Add'}</button>
+		</div>
+		{#if ipError}<div class="banner warn" style="margin-top:10px"><div>{ipError}</div></div>{/if}
+	{:else}
+		<button class="btn sm" style="margin-top:12px" onclick={() => (ipOpen = true)}>Add by IP address</button>
+	{/if}
+{/snippet}
+
+{#if !c.hosts.length}
 	<div class="empty">
 		<div class="spinner"></div>
 		<div class="big">Looking for computers on your network</div>
 		<div>Nothing yet. A computer shows up here once its owner turns sharing on.</div>
 		<div class="rule"></div>
 		<div style="font-size:13px">
-			Can't find a computer you expect? It may be on a different Wi-Fi, or the router may be
-			blocking devices from seeing each other.
+			{c.networkHint ||
+				"Can't find a computer you expect? It may be on a different Wi-Fi, or the router may be blocking devices from seeing each other."}
 		</div>
-		<button class="btn sm" style="margin-top:12px" onclick={addByIp}>Add by IP address</button>
+		<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+			<button class="btn sm" style="margin-top:12px" onclick={() => clientBackend.rescan()}>Look again</button>
+			{@render addIp()}
+		</div>
 	</div>
 {:else}
 	<h4 class="hd">Computers on your network</h4>
 	<p class="sub">Found by looking around your Wi-Fi, the same way LocalSend does.</p>
-	<div class="device">
-		<div class="ic">D</div>
-		<div class="body">
-			<div class="nm">Dara's laptop</div>
-			<div class="ds">Windows · RTX A2000 8 GB · {enabled.length} model{enabled.length === 1 ? '' : 's'} offered</div>
-			<div style="margin-top:7px">
-				<StatusChip state={rt.state} />
-				{#if rt.state === 'paused'}<span class="ds" style="margin-left:8px">{rt.reason}</span>{/if}
+	{#each c.hosts as host (host.id)}
+		<div class="device">
+			<div class="ic">{host.name.slice(0, 1).toUpperCase()}</div>
+			<div class="body">
+				<div class="nm">{host.name}</div>
+				<div class="ds">
+					{[host.os, host.gpu || 'no graphics card, slower answers'].join(' · ')}{host.paired
+						? ' · ' + host.models.length + ' model' + (host.models.length === 1 ? '' : 's') + ' offered'
+						: ''}
+				</div>
+				<div style="margin-top:7px">
+					<StatusChip state={host.status} />
+					{#if host.status === 'paused'}<span class="ds" style="margin-left:8px">{host.reason}</span>{/if}
+					{#if host.status === 'busy' && host.busyWithOther}
+						<span class="ds" style="margin-left:8px">Answering another friend</span>
+					{/if}
+				</div>
+			</div>
+			<div>
+				{#if host.paired}
+					<button class="btn pri sm" onclick={() => openChat(host.id)}>Chat</button>
+				{:else if c.pairing?.hostId === host.id}
+					<button class="btn sm" disabled>Waiting…</button>
+				{:else}
+					<button class="btn sm" disabled={!!c.pairing} onclick={() => clientBackend.askConnect(host.id)}>
+						Ask to connect
+					</button>
+				{/if}
 			</div>
 		</div>
-		<div>
-			{#if c.paired}
-				<button class="btn pri sm" onclick={() => clientBackend.openChat()}>Chat</button>
-			{:else if c.waitingCode}
-				<button class="btn sm" disabled>Waiting…</button>
-			{:else}
-				<button class="btn sm" onclick={() => clientBackend.askConnect()}>Ask to connect</button>
-			{/if}
-		</div>
-	</div>
-	{#if c.waitingCode}
+	{/each}
+	{#if c.notice}
+		<div class="banner warn"><div>{c.notice}</div></div>
+	{/if}
+	{#if c.pairing && pairingHost}
 		<div class="banner info">
 			<div>
-				<b>Check the code with Dara</b>
-				Ask him to confirm he sees <span class="mono">{c.waitingCode}</span> on his screen, then say
-				yes.
+				<b>Check the code with the owner of {pairingHost.name}</b>
+				Ask them to confirm they see <span class="mono">{c.pairing.code}</span> on their screen, then
+				they can say yes.
 			</div>
 		</div>
 	{/if}
 	<div class="rule"></div>
 	<p class="sub" style="margin:0">
-		Only computers that have allowed you will let you chat. Everything stays on your own network.
+		{c.hosts.some((h) => h.paired)
+			? "You take turns with the owner's other friends, one question at a time."
+			: "Until the owner allows you, you can only see a computer's name and whether it's ready."}
+		Everything stays on your own network.
 	</p>
+	{@render addIp()}
 {/if}
