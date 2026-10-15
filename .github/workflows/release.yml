@@ -97,6 +97,24 @@ jobs:
         run: |
           npm ci
           npx tauri build --bundles deb,appimage
+      # The bundled 22.04 libwayland breaks EGL with newer Mesa (blank window on Ubuntu 26.04,
+      # "Could not create default EGL display: EGL_BAD_PARAMETER"). Every Linux desktop ships
+      # libwayland, so drop ours and use the system's.
+      - name: Remove bundled Wayland libraries from the AppImage
+        working-directory: target/release/bundle/appimage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          wget -q -O /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          for app in *.AppImage; do
+            ./"$app" --appimage-extract >/dev/null
+            rm -v squashfs-root/usr/lib/libwayland-*.so*
+            rm "$app"
+            ARCH=x86_64 /tmp/appimagetool squashfs-root "$app"
+            rm -rf squashfs-root
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ubuntu-packages

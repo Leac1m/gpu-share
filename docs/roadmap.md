@@ -745,3 +745,13 @@ task that depended on it. If you resolve something not listed here, add a row.
 | 12 September 2026 | Roadmap created from spec v0.2. Phase 1 prototype tasks marked done. |
 | 13 October 2026 | Spec updated to v0.3. Added `P1-T9`, `P1-T10`, `P2-T10` for what v0.3 introduced. Decisions D8 and D10 recorded, D9 added, recommendations noted on D3–D6. "Where the project stands today" corrected to mention the scaffold. Cloud-session setup added (`CLAUDE.md`, `scripts/cloud-setup.sh`). |
 | 13 October 2026 | Phases 2–7 built in one session (Claude Opus 5.5): real chat, discovery, pairing, limits, model library, installers. Remaining: manual checks on real hardware, `P1-T4`–`P1-T8`, `P5-T11`, `P6-T1` (hosting, D3), `P7-T6`/`P7-T7`/`P7-T9`. |
+
+> `P7-T4` · 2026-10-15 · Claude (Opus 5.5)
+> * The AppImage opened a blank window on Ubuntu 26.04 (Wayland, Intel Iris Xe) with
+>   `Could not create default EGL display: EGL_BAD_PARAMETER`. Cause: the `libwayland-*` copies
+>   bundled from the 22.04 build machine don't work with the newer system Mesa.
+>   `WEBKIT_DISABLE_DMABUF_RENDERER`, `WEBKIT_DISABLE_COMPOSITING_MODE` and `GDK_BACKEND=x11` did
+>   not help. Deleting the bundled `libwayland-*` fixed it, checked by hand on the author's machine.
+>   The Release workflow now unpacks the AppImage, removes them and repacks it with
+>   `appimagetool`. The `.deb` uses system libraries and was never affected. The gvfs
+>   `g_task_set_static_name` warnings on startup are harmless (host gvfs vs the bundled GLib).
