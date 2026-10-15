@@ -3,12 +3,14 @@
 	import { vramFor } from '../format';
 	import Switch from './Switch.svelte';
 	import type { CatalogEntry } from '../types';
+	import { hardware } from '../hardware';
 
 	const h = hostBackend.view;
 
 	const installed = $derived(h.catalog.filter((m) => h.installed.includes(m.id)));
 	const available = $derived(h.catalog.filter((m) => !h.installed.includes(m.id)));
-	const vram = $derived(h.card?.vramGB ?? 8);
+	const hw = $derived(hardware(h));
+	const vram = $derived(hw.totalGB);
 
 	const need = (m: CatalogEntry) => vramFor(m, h.settings.ctx);
 	const isDefault = (m: CatalogEntry) => (h.settings.defaultModel ?? hostBackend.offeredModels()[0]) === m.id;
@@ -23,7 +25,7 @@
 		linkBusy = false;
 		if (!linkError) link = '';
 	}
-	const fitsCard = (m: CatalogEntry) => need(m) <= vram - 0.4;
+	const fitsCard = (m: CatalogEntry) => need(m) <= vram - hw.reserveGB;
 	const fitsBudget = (m: CatalogEntry) => need(m) <= h.settings.budget;
 </script>
 
@@ -35,15 +37,15 @@
 		<div class="body">
 			<div class="nm">
 				{m.name}
-				{#if h.loaded === m.id}<span class="badge loaded">On the card now</span>{/if}
+				{#if h.loaded === m.id}<span class="badge loaded">Loaded now</span>{/if}
 				{#if h.loading === m.id}<span class="badge loaded">Loading…</span>{/if}
 				{#if isInstalled && isDefault(m)}<span class="badge fits">Default</span>{/if}
 				{#if !fitsCard(m)}
-					<span class="badge nofit">Too big for this card</span>
+					<span class="badge nofit">Too big for this {hw.short}</span>
 				{:else if !fitsBudget(m)}
 					<span class="badge nofit">Over your memory limit</span>
 				{:else}
-					<span class="badge fits">Fits your card</span>
+					<span class="badge fits">Fits your {hw.short}</span>
 				{/if}
 			</div>
 			<div class="ds">{m.desc}</div>
@@ -51,9 +53,11 @@
 				<div class="ds" style="color:var(--halt)">Not offered to friends until you raise your memory limit.</div>
 			{/if}
 			<div class="meta mono">
-				{m.fileGB.toFixed(1)} GB file · needs {need(m).toFixed(1)} GB on the card · {m.tps
-					? 'about ' + m.tps + ' tokens/sec (estimate)'
-					: "won't run here"} · {m.license}
+				{m.fileGB.toFixed(1)} GB file · needs {need(m).toFixed(1)} GB {hw.card ? 'on the card' : 'of memory'} · {!hw.card
+					? 'slow on a processor'
+					: m.tps
+						? 'about ' + m.tps + ' tokens/sec (estimate)'
+						: "won't run here"} · {m.license}
 			</div>
 			{#if dl}
 				<div class="progress"><i style="width:{dl.pct}%"></i></div>
@@ -81,7 +85,7 @@
 <h4 class="hd">Models on your machine</h4>
 <p class="sub">
 	These are the AI models your friends can choose from. Switch one off to keep it for yourself. When
-	two friends want different models, the card swaps between them, which adds a few seconds.
+	two friends want different models, the {hw.short} swaps between them, which adds a few seconds.
 </p>
 {#each installed as m (m.id)}
 	{@render card(m)}

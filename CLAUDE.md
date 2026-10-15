@@ -33,6 +33,7 @@ scripts/dev-engine.sh                                         # CPU llama-server
 cargo test -p host --test real_engine -- --ignored            # chat through the real engine
 cargo check --workspace --target x86_64-pc-windows-gnu        # Windows shims (needs mingw-w64)
 scripts/e2e/run.sh eth0                                       # two real apps, pair + chat (WebDriver)
+scripts/e2e/installed.sh eth0                                 # the installed .deb, Ubuntu to Ubuntu, real engine + model
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check on Windows.
@@ -63,6 +64,7 @@ CI (`.github/workflows/ci.yml`) runs the same on Ubuntu and a compile-only check
 
 `scripts/cloud-setup.sh` installs the Tauri system libraries at session start (it does nothing
 locally). There is no GPU, no Windows, and no LAN peer in a cloud VM, so Phase 5 hardware work, the
-Windows shims and real multicast discovery cannot be verified there: build them behind traits,
+Windows shims, the NVIDIA side of Linux hosting (Phase 8) and real multicast discovery cannot be
+verified there: build them behind traits,
 test the pure logic, and leave the manual check unticked in the roadmap. `huggingface.co` is not
 reachable under the default network level (roadmap `P2-T1` note).

@@ -162,6 +162,16 @@ pub fn public_network_warning(is_public: Option<bool>) -> Option<String> {
     })
 }
 
+/// Shown on an Ubuntu host's Share screen when `ufw` is on: friends need both ports open.
+pub fn host_firewall_warning(ufw_on: bool, port: u16) -> Option<String> {
+    ufw_on.then(|| {
+        format!(
+            "This computer's firewall (ufw) is on, so friends can't reach it. In a terminal, run: \
+             sudo ufw allow {port}/tcp && sudo ufw allow {MULTICAST_PORT}/udp"
+        )
+    })
+}
+
 /// What discovery has observed, for [`diagnose`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Observations {
@@ -241,6 +251,13 @@ mod tests {
         assert_eq!(ips.len(), 253);
         assert!(!ips.contains(&Ipv4Addr::new(192, 168, 1, 23)));
         assert_eq!(ips[0], Ipv4Addr::new(192, 168, 1, 1));
+    }
+
+    #[test]
+    fn an_ubuntu_host_behind_ufw_is_told_both_ports() {
+        let w = host_firewall_warning(true, 50123).unwrap();
+        assert!(w.contains("ufw allow 50123/tcp") && w.contains("ufw allow 53737/udp"), "{w}");
+        assert_eq!(host_firewall_warning(false, 50123), None);
     }
 
     #[test]

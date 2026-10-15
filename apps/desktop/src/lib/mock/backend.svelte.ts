@@ -125,7 +125,9 @@ function freshHost(): HostView {
 		toasts: [],
 		runningApps: [],
 		networkWarning: null,
-		engineSetup: null
+		engineSetup: null,
+		idleKnown: true,
+		memoryGB: null
 	};
 }
 

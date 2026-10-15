@@ -60,10 +60,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // On Windows the app lives in the tray (spec §6.1): closing the window hides it, and
-            // sharing carries on. The Linux build is a client, so closing it quits.
+            // A host lives in the tray (spec §6.1): closing the window hides it, and sharing
+            // carries on. On Linux, where every install can share, only while sharing is on, so a
+            // computer that just uses a friend's card quits when closed.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if cfg!(windows) && window.app_handle().state::<std::sync::Arc<state::AppState>>().host.is_some() {
+                let state = window.app_handle().state::<std::sync::Arc<state::AppState>>();
+                let keep = state.host.as_ref().is_some_and(|h| cfg!(windows) || h.core.sharing());
+                if keep {
                     api.prevent_close();
                     let _ = window.hide();
                 }

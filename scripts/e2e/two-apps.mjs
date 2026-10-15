@@ -1,4 +1,6 @@
 // Two real GPU Share apps on one machine: an owner sharing with the dev engine, and a friend.
+// Both run Linux and the owner has no graphics card (the world file lists none), the way an
+// Ubuntu-to-Ubuntu pilot without GPUs looks: the owner answers on the processor.
 // The friend finds the owner by multicast, pairs with a matching code, and chats with the
 // real model. Run through scripts/e2e/run.sh, which starts Xvfb, the UI dev server and two
 // tauri-drivers.
@@ -16,8 +18,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const owner = await Session.start('http://127.0.0.1:4444', APP, 'owner');
 const friend = await Session.start('http://127.0.0.1:4454', APP, 'friend');
 try {
-	// --- the owner switches sharing on
+	// --- the owner switches sharing on. Without a graphics card the app opens on "Use a
+	// friend's", so the owner goes to Share mode first.
+	await owner.click('//header//button[contains(., "Share this computer")]');
 	await owner.click(btn('Set up sharing'));
+	await owner.wait('//div[contains(@class,"banner")]//b[contains(., "No graphics card found")]');
 	await owner.click('//div[contains(@class,"bigswitch")]//button[@role="switch"]');
 	await owner.wait('//div[contains(@class,"bigswitch")]//span[contains(@class,"chip") and contains(., "Ready")]');
 	log('owner: sharing, Ready');
@@ -26,6 +31,9 @@ try {
 	await friend.click(btn("Use a friend's"));
 	await friend.wait('//div[contains(@class,"device")]//div[@class="nm" and contains(., "E2E Owner")]', 30000);
 	log('friend: owner found on the network');
+	const seen = await friend.text('//div[contains(@class,"device")][.//div[contains(., "E2E Owner")]]//div[@class="ds"]');
+	if (!seen.includes('no graphics card')) throw new Error(`friend should be told the owner has no card: ${seen}`);
+	log('friend: sees', JSON.stringify(seen.trim()));
 	await friend.click(btn('Ask to connect'));
 	const friendCode = (await friend.text('//div[contains(@class,"banner info")]//span[contains(@class,"mono")]')).trim();
 	const ownerCode = (await owner.text('//div[contains(@class,"modal")]//div[contains(@class,"code")]')).trim();
@@ -63,7 +71,7 @@ try {
 	// --- the model library: remove the model, add it back from the catalog (real download)
 	await owner.click(tab('Models'));
 	const devCard = '//div[contains(@class,"model")][.//div[contains(@class,"nm") and contains(., "SmolLM2")]]';
-	await owner.wait(`${devCard}//span[contains(., "Fits your card")]`);
+	await owner.wait(`${devCard}//span[contains(., "Fits your computer")]`);
 	await owner.click(`${devCard}//button[contains(., "Remove")]`);
 	await owner.click(`${devCard}//button[normalize-space(.)="Add"]`, 15000);
 	log('owner: removed the model, downloading it again…');

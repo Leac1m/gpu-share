@@ -12,6 +12,8 @@ pub mod gguf;
 mod jobobject;
 pub mod library;
 pub mod line;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod pairing;
 pub mod policy;
 pub mod runtime;

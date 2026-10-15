@@ -93,6 +93,10 @@ on real machines.
 - [ ] Tray icon on both platforms (`P7-T5`)
 - [ ] Tokens/sec, load time, VRAM, temperature on the real A2000 (`P5-T11`)
 - [ ] Engine Job Object on Windows: closing the app kills `llama-server`, priority shows Below normal in Task Manager (`P2-T4`)
+- [ ] Ubuntu host with an NVIDIA card: the model loads on the card through Vulkan (the Share screen's memory meter and `nvidia-smi` agree), temperature shows, a game or Blender render pauses it and a video in Firefox doesn't (`P8-T2`, `P8-T4`)
+- [ ] Ubuntu host on GNOME: typing pauses sharing and 5 minutes away resumes it; on another desktop the Limits screen says the rule can't work (`P8-T3`)
+- [ ] Ubuntu host doesn't suspend mid-answer and does later (`P8-T4`, `systemd-inhibit --list` shows "GPU Share" only while answering)
+- [ ] Tray icon on Ubuntu while sharing; closing the window keeps sharing, Quit stops it (`P8-T7`)
 
 ---
 
@@ -108,6 +112,7 @@ on real machines.
 | [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the rules and measurements on the real laptop are still to do (`P5-T11`, manual checklist) |
 | [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | Installers built by the Release workflow; the updater, code signing and the pilot are the project author's calls |
+| [8](#phase-8--ubuntu-hosts) | Ubuntu hosts | 8 / 9 | Ubuntu shares with or without a GPU; installed package tested Ubuntu to Ubuntu on the processor. The NVIDIA-card check on a real Ubuntu desktop is still to do |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
 ---
@@ -120,18 +125,19 @@ which phases are real.
 
 | What exists | Where | State |
 |---|---|---|
-| Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.3, draft but detailed enough to build from |
+| Full project spec | [gpu-share-project.md](gpu-share-project.md) | v0.4, draft but detailed enough to build from |
 | Clickable prototype | [gpu-share-preview.html](gpu-share-preview.html) | Build 0.2 (several friends, queue) |
 | Shared protocol crate | `crates/protocol` | Announcement, API and pairing types with golden fixtures, the 5-endpoint allowlist, VRAM estimate |
 | Identity and pinned TLS | `crates/netcore` | Per-install certificate, fingerprint pinning both ways, LAN interface choice and multicast |
-| Host (Share mode) | `crates/host` | Policy loop and OS signals, engine supervisor, gatekeeper, queue, pairing, usage counts, model library, first-run engine setup |
+| Host (Share mode) | `crates/host` | Policy loop and OS signals (Windows and Linux), engine supervisor, gatekeeper, queue, pairing, usage counts, model library, first-run engine setup |
 | Client (Use mode) | `crates/client` | Discovery, gatekeeper client, chat history, pairing |
 | Desktop app | `apps/desktop` | Tauri 2 + Svelte 5: the real app over the crates, and the browser preview over a mock |
-| Release builds | `.github/workflows/release.yml` | Windows NSIS installer, Ubuntu `.deb` and AppImage |
+| Release builds | `.github/workflows/release.yml` | Windows NSIS installer, Ubuntu `.deb` and AppImage, each with its engine manifest |
 | Guides | [pilot.md](pilot.md), [releasing.md](releasing.md), [security-review.md](security-review.md) | For the pilot, releases, and the spec §7 review |
 
 The automated suites listed above (1–10) all exist; `scripts/e2e/run.sh` drives two real app
-instances end to end on one Linux machine. What is left is what only real machines can show:
+instances end to end on one Linux machine, and `scripts/e2e/installed.sh` does the same with the
+installed `.deb`, the real engine and a real model. What is left is what only real machines can show:
 the manual checklist above, the pilot, and the project author's decisions (D3–D6, D9, D10).
 
 What the prototype actually simulates today: both machines side by side; the share switch; a
@@ -698,6 +704,79 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 
 ---
 
+## Phase 8 — Ubuntu hosts
+
+Added 15 October 2026 (D11): Ubuntu computers can share too, with an NVIDIA card or on the
+processor alone, so the app can be tried Ubuntu to Ubuntu. Spec v0.4, R8a and §6.11.
+
+- [x] **P8-T1** — Linux engine: the pinned llama.cpp release's Vulkan build (`.tar.gz`) in the
+      Release workflow's manifest, downloaded, checked and unpacked the first time sharing is
+      switched on, so computers that only use never fetch it. *(spec §6.10)*
+- [x] **P8-T2** — Where the model runs: all layers on the NVIDIA card when NVML sees one,
+      otherwise processor only (`--device none`). Without a card the memory limit is the RAM, and
+      the catalog offers Qwen3 0.6B and 1.7B for processor-only hosts.
+- [x] **P8-T3** — "Pause while I'm using the computer" on Linux: idle time from GNOME over D-Bus;
+      on other desktops the Limits screen says the rule can't work.
+- [x] **P8-T4** — Keep awake with a logind sleep inhibitor; "another app is using the GPU" from
+      NVML per-process utilization, ignoring the desktop itself.
+- [x] **P8-T5** — The engine runs below the owner's programs (`nice` 10) and dies with the app
+      (`PR_SET_PDEATHSIG`), the Linux counterpart of the Job Object (`P2-T4`).
+- [x] **P8-T6** — Ubuntu host networking: the Share screen gives the `ufw` commands when the
+      firewall is on.
+- [x] **P8-T7** — UI for hosts without a card ("Share this computer", memory instead of card
+      memory, no temperature or GPU rules); the app opens in Use mode on a computer without a card
+      until sharing is set up; closing the window keeps a sharing Ubuntu host in the tray.
+- [x] **P8-T8** — The installed `.deb`, Ubuntu to Ubuntu, with the real engine and a real model
+      (`scripts/e2e/installed.sh`).
+- [ ] **P8-T9** — On a real Ubuntu desktop with an NVIDIA card: the model on the card through
+      Vulkan, GNOME idle time, temperature, "another app is using the GPU", no sleep mid-answer
+      (manual checklist).
+
+**Done when:** two Ubuntu computers on a real home network share both ways, one of them with an
+NVIDIA card.
+
+### Notes — Phase 8
+
+> `P8-T1`…`P8-T8` · 2026-10-15 · Claude
+> * Asked for by the project author (D11) to try the app Ubuntu to Ubuntu, possibly on a computer
+>   without a GPU. Spec v0.4 (R8a, §6.11).
+> * Engine: llama.cpp's `ubuntu-vulkan-x64` build (30 MB at `b11582`). It is built with
+>   `GGML_BACKEND_DL`, so the Vulkan and CPU backends are separate libraries loaded at start: the
+>   same download runs on an NVIDIA card or, with `--device none`, on the processor only (also
+>   keeping it off integrated graphics such as Intel Iris Xe, whose memory isn't what the budget
+>   measures). llama.cpp also publishes Linux CUDA builds now, but built on 24.04 (newer glibc)
+>   and much larger; Vulkan was the simpler first step.
+> * `engine_setup.rs` now unpacks `.tar.gz` too (flat, executable bits kept, symlinks recreated
+>   only when they point at a plain name in the same folder) into `<tag>.partial`, renamed into
+>   place when complete. On Linux the download waits for the first switch-on
+>   (`engine_setup::drive`, `When::FirstShare`); a failed setup retries on the next switch-on.
+> * The app's downloads now trust the OS certificate store as well as the built-in roots
+>   (`rustls-tls-native-roots`). Found because this cloud session's proxy re-signs HTTPS
+>   ("UnknownIssuer"); on Windows, antivirus HTTPS scanning does the same. Download errors now
+>   include their cause chain.
+> * Linux shims (`linux.rs`): idle time from GNOME's `org.gnome.Mutter.IdleMonitor.GetIdletime`
+>   and a logind `sleep` inhibitor, both tested against stand-ins on a private bus
+>   (`tests/linux_dbus.rs`). KDE's `org.freedesktop.ScreenSaver.GetSessionIdleTime` was left out:
+>   implementations disagree on its unit. Other GPU users come from NVML's per-process samples,
+>   ignoring compositors (pure function tested; the NVML call itself needs a real card).
+> * Engine on Linux: `nice` 10 and `PR_SET_PDEATHSIG` via `pre_exec`. A test re-runs the test
+>   binary as a stand-in app, `kill -9`s it and checks the engine dies; it fails without the
+>   setting.
+> * Added Qwen3 0.6B and 1.7B (Q8_0, official Qwen repos pinned to a commit, sizes and SHA-256s
+>   from Hugging Face's API on 15 October 2026, Apache 2.0, shapes from their `config.json`). Their
+>   tokens/sec figures are estimates for the A2000, like the others; processor-only hosts show "slow
+>   on a processor" instead.
+> * `scripts/e2e/installed.sh` passed here with the release `.deb`: the owner switched sharing on,
+>   downloaded the real engine from GitHub, added Qwen3 0.6B from Hugging Face, and answered the
+>   friend ("The capital of France is Paris.") on the processor; the engine ran with
+>   `--device none` at nice 10 and died when the owner app was killed; the friend never downloaded
+>   the engine. `scripts/e2e/run.sh` now runs its owner as a host without a card.
+> * Not checked here (no GPU, no GNOME session): the NVIDIA path, GNOME idle time on a real
+>   desktop, the sleep inhibitor against real logind, the tray. See `P8-T9` and the manual
+>   checklist.
+
+---
+
 ## Later (backlog)
 
 Deliberately out of scope for now. The design keeps each of these possible; none is built.
@@ -707,7 +786,7 @@ Deliberately out of scope for now. The design keeps each of these possible; none
 - [ ] **L-T2** — Several hosts, with requests sent to whichever friend's PC is available.
 - [ ] **L-T3** — Renting: pricing, payments, per-device billing from the usage counts, terms of
       use. Per-device identity and usage counts exist from day one for this. *(spec R10)*
-- [ ] **L-T4** — CPU-only host mode for Linux.
+- [x] **L-T4** — CPU-only host mode for Linux. *(pulled forward as [Phase 8](#phase-8--ubuntu-hosts), D11)*
 - [ ] **L-T5** — Local OpenAI-compatible API on the client's `localhost` that forwards to the
       chosen host, so editors and scripts can use the host's GPU. *(spec §6.9 — pull forward into
       Phase 2 if it turns out to be cheap)*
@@ -735,6 +814,7 @@ task that depended on it. If you resolve something not listed here, add a row.
 | D8 | How renting would work, if it happens | Deferred | Not part of the first build (project author). Keep per-device usage counts; build nothing for pricing, payments or billing | 13 October 2026 |
 | D9 | Per-friend priority or daily limit (spec §9, added in v0.3) | Open | *Recommended, not yet confirmed:* neither in the first build; first come first served, one waiting request per device and the reply cap are enough until the pilot says otherwise | — |
 | D10 | What the first build is for | Decided | A working prototype the project author can try with friends comes first (project author). *Proposed cut, not yet confirmed:* real chat with the queue, multicast discovery plus "Add by IP", pairing, the share switch with the idle and other-app-on-GPU pause rules, two fixed models, unsigned installers, no auto-updater | 13 October 2026 |
+| D11 | Can Ubuntu computers host? | Decided | Yes (project author): Ubuntu computers can share, with an NVIDIA card or on the processor alone, for Ubuntu-to-Ubuntu testing. Built as Phase 8, spec v0.4 | 15 October 2026 |
 
 ---
 
@@ -745,6 +825,7 @@ task that depended on it. If you resolve something not listed here, add a row.
 | 12 September 2026 | Roadmap created from spec v0.2. Phase 1 prototype tasks marked done. |
 | 13 October 2026 | Spec updated to v0.3. Added `P1-T9`, `P1-T10`, `P2-T10` for what v0.3 introduced. Decisions D8 and D10 recorded, D9 added, recommendations noted on D3–D6. "Where the project stands today" corrected to mention the scaffold. Cloud-session setup added (`CLAUDE.md`, `scripts/cloud-setup.sh`). |
 | 13 October 2026 | Phases 2–7 built in one session (Claude Opus 5.5): real chat, discovery, pairing, limits, model library, installers. Remaining: manual checks on real hardware, `P1-T4`–`P1-T8`, `P5-T11`, `P6-T1` (hosting, D3), `P7-T6`/`P7-T7`/`P7-T9`. |
+| 15 October 2026 | Phase 8 added and built: Ubuntu computers can host, with an NVIDIA card or on the processor (D11, spec v0.4). L-T4 pulled forward into it. |
 
 > `P7-T4` · 2026-10-15 · Claude (Opus 5.5)
 > * The AppImage opened a blank window on Ubuntu 26.04 (Wayland, Intel Iris Xe) with

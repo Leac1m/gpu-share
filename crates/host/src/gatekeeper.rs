@@ -312,8 +312,13 @@ async fn run_turn(core: Arc<HostCore>, mut ticket: Ticket, spec: crate::engine::
     if core.supervisor.status().loaded.as_deref() != Some(spec.id.as_str()) {
         if let Some(short) = core.vram_shortfall(&spec) {
             log::info!("not loading {}: {short:.1} GB short", spec.id);
-            core.toast("Not enough graphics card memory", "Something else is using the card, so the model wasn't loaded.");
-            let reason = "There isn't enough free graphics card memory on the host right now".to_string();
+            let (reason, toast) = if core.cfg.card.is_some() {
+                ("There isn't enough free graphics card memory on the host right now", ("Not enough graphics card memory", "Something else is using the card, so the model wasn't loaded."))
+            } else {
+                ("There isn't enough free memory on the host right now", ("Not enough memory", "Other programs are using the memory, so the model wasn't loaded."))
+            };
+            core.toast(toast.0, toast.1);
+            let reason = reason.to_string();
             let _ = tx.send(Out::Queue(QueueEvent::Stopped { reason })).await;
             return;
         }

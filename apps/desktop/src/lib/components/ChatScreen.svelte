@@ -52,7 +52,7 @@
 	<div class="empty">
 		<div class="big">No models available</div>
 		<div>
-			The owner has switched them all off, or they need more graphics card memory than the owner
+			The owner has switched them all off, or they need more memory than the owner
 			allows.
 		</div>
 	</div>
@@ -82,7 +82,7 @@
 				<div class="empty" style="padding:26px 10px">
 					<div class="big">Ask anything</div>
 					<div>
-						The first question takes a few seconds longer while the model loads onto the card. If
+						The first question takes a few seconds longer while the model loads. If
 						another friend is already asking, you'll wait your turn.
 					</div>
 				</div>
@@ -104,11 +104,11 @@
 				<div class="loadbar">
 					You're {ordinal(c.turn.position)} in line. {ahead === 1
 						? 'One question from another friend is'
-						: ahead + ' questions from other friends are'} ahead of yours. The card answers one at a time,
+						: ahead + ' questions from other friends are'} ahead of yours. Their computer answers one at a time,
 					so yours starts as soon as {ahead === 1 ? 'it finishes' : 'they finish'}.
 				</div>
 			{:else if c.turn?.phase === 'loading'}
-				<div class="loadbar mono">Loading {modelName(c.turn.model)} onto the graphics card… {c.turn.pct}%</div>
+				<div class="loadbar mono">Loading {modelName(c.turn.model)}… {c.turn.pct}%</div>
 			{/if}
 		</div>
 		<div class="composer">

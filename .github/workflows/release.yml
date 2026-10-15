@@ -4,9 +4,10 @@ name: Release
 # any push that changes how the app is packaged (so packaging breaks show up before a release),
 # or on a tag like v0.1.0, which also makes a draft GitHub release with the files attached.
 #
-# The Windows installer does not contain the AI engine: it carries engine-manifest.json, made
-# here from the llama.cpp release pinned in engine-version.txt (URLs, sizes, SHA-256s), and the
-# app downloads and checks those files on first run (P7-T3).
+# Neither build contains the AI engine: each carries engine-manifest.json, made here from the
+# llama.cpp release pinned in engine-version.txt (URLs, sizes, SHA-256s), and the app downloads
+# and checks those files on first use: the CUDA build on Windows (P7-T3), the Vulkan build on
+# Linux (P8-T1).
 
 on:
   workflow_dispatch:
@@ -92,6 +93,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev patchelf build-essential curl wget file
+      # Linux hosts (P8-T1): the Vulkan build of llama-server, which also runs on the processor
+      # when there's no usable GPU. Downloaded by the app the first time sharing is switched on.
+      - name: Engine manifest from the pinned llama.cpp release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(tr -d '[:space:]' < engine-version.txt)
+          name="llama-$tag-bin-ubuntu-vulkan-x64.tar.gz"
+          gh release download "$tag" -R ggml-org/llama.cpp -p "$name" -D engine-dl
+          path="engine-dl/$name"
+          # the archive must hold llama-server, or the app would download it for nothing
+          tar -tzf "$path" | grep -q '/llama-server$' || { echo "no llama-server in $name"; exit 1; }
+          jq -n --arg tag "$tag" \
+                --arg url "https://github.com/ggml-org/llama.cpp/releases/download/$tag/$name" \
+                --arg sha "$(sha256sum "$path" | cut -d' ' -f1)" \
+                --argjson size "$(stat -c %s "$path")" \
+                '{tag: $tag, files: [{url: $url, sha256: $sha, size: $size}]}' \
+            > apps/desktop/src-tauri/engine-manifest.json
+          cat apps/desktop/src-tauri/engine-manifest.json
       - name: Build
         working-directory: apps/desktop
         run: |

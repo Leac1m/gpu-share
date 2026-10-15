@@ -64,7 +64,7 @@
 			<div class="body">
 				<div class="nm">{host.name}</div>
 				<div class="ds">
-					{[host.os, host.gpu].filter(Boolean).join(' · ')}{host.paired
+					{[host.os, host.gpu || 'no graphics card, slower answers'].join(' · ')}{host.paired
 						? ' · ' + host.models.length + ' model' + (host.models.length === 1 ? '' : 's') + ' offered'
 						: ''}
 				</div>

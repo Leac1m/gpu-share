@@ -117,6 +117,22 @@ pub enum DownloadError {
     Disk(String),
 }
 
+/// reqwest's own message ("error sending request for url ...") hides the reason; the chain of
+/// causes says it (a certificate problem, a refused connection, a timeout).
+fn with_causes(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut cause = err.source();
+    while let Some(c) = cause {
+        let text = c.to_string();
+        if !msg.contains(&text) {
+            msg.push_str(": ");
+            msg.push_str(&text);
+        }
+        cause = c.source();
+    }
+    msg
+}
+
 pub fn part_path(dir: &Path, e: &CatalogEntry) -> PathBuf {
     dir.join(format!("{}.part", e.file_name()))
 }
@@ -181,7 +197,7 @@ pub async fn download_file(
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
-    let resp = req.send().await.map_err(|err| DownloadError::Network(err.to_string()))?;
+    let resp = req.send().await.map_err(|err| DownloadError::Network(with_causes(&err)))?;
     let resumed = resp.status() == reqwest::StatusCode::PARTIAL_CONTENT;
     if !resp.status().is_success() {
         return Err(DownloadError::Network(format!("HTTP {}", resp.status())));
@@ -201,7 +217,7 @@ pub async fn download_file(
     let mut stream = resp.bytes_stream();
     let mut last = Instant::now();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|err| DownloadError::Network(err.to_string()))?;
+        let chunk = chunk.map_err(|err| DownloadError::Network(with_causes(&err)))?;
         if done + chunk.len() as u64 > f.size_bytes {
             return Err(DownloadError::Network("the server sent more than expected".into()));
         }

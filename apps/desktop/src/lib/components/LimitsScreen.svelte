@@ -2,6 +2,7 @@
 	import { hostBackend, isPreview } from '../backend';
 	import { approxWords, fmtHour, fmtNum, SUGGESTED_PAUSE_APPS, vramFor } from '../format';
 	import Switch from './Switch.svelte';
+	import { hardware } from '../hardware';
 
 	const h = hostBackend.view;
 	const st = $derived(h.settings);
@@ -14,7 +15,8 @@
 	);
 	const need = $derived(current ? vramFor(current, st.ctx) : 0);
 	const kv = $derived(current ? current.kvGB * (st.ctx / 4096) : 0);
-	const vram = $derived(h.card?.vramGB ?? 8);
+	const hw = $derived(hardware(h));
+	const vram = $derived(hw.totalGB);
 	const remainingApps = $derived(
 		[...new Set([...h.runningApps, ...SUGGESTED_PAUSE_APPS])].filter((a) => !st.pauseApps.includes(a))
 	);
@@ -38,14 +40,21 @@
 
 <div class="row">
 	<div class="txt">
-		<div class="t">Graphics card memory it may use</div>
+		<div class="t">{hw.card ? 'Graphics card memory' : 'Memory'} it may use</div>
 		<div class="d">
-			Your card has {vram.toFixed(0)} GB. Your current model needs about {need.toFixed(1)} GB. Leave room for
-			whatever you're working on.
+			{hw.card ? 'Your card has' : 'This computer has'} {vram.toFixed(0)} GB. Your current model needs about {need.toFixed(1)}
+			GB. Leave room for whatever you're working on.
 		</div>
 	</div>
 	<div class="ctl">
-		<input type="range" min="2" max={Math.max(2, vram - 0.5)} step="0.5" value={st.budget} oninput={(e) => update({ budget: num(e) })} />
+		<input
+			type="range"
+			min="1"
+			max={Math.max(1, vram - (hw.card ? 0.5 : 2))}
+			step="0.5"
+			value={st.budget}
+			oninput={(e) => update({ budget: num(e) })}
+		/>
 		<span class="val mono">{st.budget.toFixed(1)} GB</span>
 	</div>
 </div>
@@ -55,7 +64,7 @@
 		<div class="t">How much of a conversation the model remembers</div>
 		<div class="d">
 			Measured in tokens, the small pieces of words a model reads. 1,000 tokens is about 750 words.
-			Longer conversations use more memory on your card: {fmtNum(st.ctx)} tokens uses about {kv.toFixed(1)} GB.
+			Longer conversations use more memory{hw.card ? ' on your card' : ''}: {fmtNum(st.ctx)} tokens uses about {kv.toFixed(1)} GB.
 		</div>
 	</div>
 	<div class="ctl">
@@ -70,7 +79,7 @@
 <div class="row">
 	<div class="txt">
 		<div class="t">Longest answer it will give</div>
-		<div class="d">Stops very long answers from tying up your card while other friends wait.</div>
+		<div class="d">Stops very long answers from tying up your {hw.short} while other friends wait.</div>
 	</div>
 	<div class="ctl">
 		<select onchange={(e) => update({ maxReply: num(e) })}>
@@ -90,6 +99,12 @@
 			Sharing stops the moment you touch the keyboard, and starts again once you've been away for a
 			while.
 		</div>
+		{#if !h.idleKnown && !isPreview}
+			<div class="d" style="color:var(--halt)">
+				This computer can't tell when you're using it (only Ubuntu's standard desktop, GNOME, says), so this
+				rule has no effect here.
+			</div>
+		{/if}
 	</div>
 	<div class="ctl">
 		<Switch checked={st.pauseWhenInUse} size="sm" onToggle={() => update({ pauseWhenInUse: !st.pauseWhenInUse })} />
@@ -140,6 +155,7 @@
 	</div>
 </div>
 
+{#if hw.card}
 <div class="row">
 	<div class="txt">
 		<div class="t">Pause when anything else uses the graphics card</div>
@@ -167,6 +183,7 @@
 		<span class="val mono">{st.tempPause}°C</span>
 	</div>
 </div>
+{/if}
 
 <div class="row">
 	<div class="txt">

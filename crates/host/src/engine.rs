@@ -201,6 +201,24 @@ impl Supervisor {
             // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
             cmd.creation_flags(0x0800_0000 | 0x0000_4000);
         }
+        #[cfg(target_os = "linux")]
+        {
+            // The Linux counterpart of the Windows Job Object: a lower priority so the owner's own
+            // programs come first, and the engine dies with the app even if the app crashes
+            // (PR_SET_PDEATHSIG). The signal follows the spawning *thread*; engines are started
+            // from the runtime's worker threads, which live as long as the app.
+            let parent = std::process::id();
+            // SAFETY: only async-signal-safe calls between fork and exec.
+            unsafe {
+                cmd.pre_exec(move || {
+                    libc::setpriority(libc::PRIO_PROCESS as _, 0, ENGINE_NICE);
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 || libc::getppid() as u32 != parent {
+                        return Err(std::io::Error::other("the app went away before the engine started"));
+                    }
+                    Ok(())
+                });
+            }
+        }
         let mut child = cmd.spawn().map_err(|e| EngineError::Spawn(e.to_string()))?;
         #[cfg(windows)]
         let job = crate::jobobject::Job::for_engine(&child, self.cfg.memory_cap).map_err(EngineError::Spawn)?;
@@ -303,6 +321,10 @@ impl Supervisor {
 }
 
 const START_ATTEMPTS: u32 = 3;
+
+/// Linux `nice` value for the engine (10 = clearly below the owner's programs).
+#[cfg(target_os = "linux")]
+pub const ENGINE_NICE: i32 = 10;
 
 fn free_port() -> std::io::Result<u16> {
     Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())

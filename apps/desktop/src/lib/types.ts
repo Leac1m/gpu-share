@@ -117,6 +117,10 @@ export interface HostView {
 	networkWarning: string | null;
 	/** First-run engine download, while it's in progress. */
 	engineSetup: DownloadProgress | null;
+	/** Whether this computer can tell when the owner is using it (not on every Linux desktop). */
+	idleKnown: boolean;
+	/** Total RAM in GB: what a host without a graphics card answers from. */
+	memoryGB: number | null;
 }
 
 export interface HostBackend {

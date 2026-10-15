@@ -49,6 +49,35 @@ icon to switch sharing on or off, or to quit.
    loads onto the owner's card. If another friend's question is being answered, you'll see your
    place in line.
 
+## Ubuntu to Ubuntu (an Ubuntu computer as the host)
+
+Any Ubuntu computer can share too, with or without a graphics card. Handy for trying the whole
+thing between two Ubuntu PCs before the Windows laptop is involved.
+
+1. Install the package on both computers as above.
+2. On the computer that will share, press **Share this computer** at the top (or **Share my
+   graphics card** if it has an NVIDIA card), then **Set up sharing**, and switch sharing on.
+   The first time, the app downloads the AI engine (about 30 MB) and checks it. Computers that
+   never switch sharing on never download it.
+3. Open **Models** and **Add** a model:
+   * **Without a graphics card**, answers come from the processor, at a few words a second. Take
+     **Qwen3 0.6B** (640 MB, quickest) or **Qwen3 1.7B** (1.8 GB, a bit better).
+   * **With an NVIDIA card**, Qwen3 4B or 8B as on Windows, if they fit the card. The NVIDIA
+     driver must be installed (Ubuntu's "Additional Drivers" does this), since the engine uses the
+     card through the driver's Vulkan support.
+4. If Ubuntu's firewall is on, the Share screen shows the two commands to run.
+5. The other computer finds it under **Computers** and pairs exactly as with the Windows laptop.
+
+Differences from the Windows host:
+
+* **"Pause while I'm using the computer"** works on Ubuntu's standard desktop (GNOME). On other
+  desktops (KDE, Xfce, …) the app can't tell when you're at the keyboard; the Limits screen says
+  so, and the rule has no effect.
+* Without a graphics card there's no temperature limit or "another app is using the GPU" rule,
+  and the memory limit is the computer's RAM.
+* While sharing is on, closing the window keeps the app running in the tray (top right). Use the
+  tray menu's **Quit** to stop it.
+
 ## What to check during the pilot
 
 These can only be checked on the real machines. Tick them in the roadmap's manual checklist as
@@ -73,7 +102,8 @@ you go, with a note of what you saw.
 * **Network set to Public on the owner's laptop**: see step 6 above.
 * **Add by IP address**: on the owner's laptop, run `ipconfig` and note the IPv4 address (like
   192.168.1.23). On the friend's computer, press **Add by IP address** and type it.
-* **Ubuntu firewall**: if `ufw` is on, the friend's app says so and shows the command to run.
+* **Ubuntu firewall**: if `ufw` is on, the app says so and shows the commands to run (on a
+  friend's computer and on an Ubuntu computer that shares).
 * Several network adapters (VPN, virtual machines)? Start the app with
   `GPU_SHARE_IFACE=<adapter name>` to choose the one that's on the home network.
 

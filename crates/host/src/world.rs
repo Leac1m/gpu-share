@@ -6,10 +6,11 @@
 //!
 //! | Signal | Windows | Linux |
 //! |---|---|---|
-//! | idle time | `GetLastInputInfo` | not available (rule stays inactive) |
+//! | idle time | `GetLastInputInfo` | GNOME over D-Bus (`linux.rs`); elsewhere the rule stays inactive |
 //! | running apps | process list (`sysinfo`) | same |
-//! | other app on the GPU | GPU Engine performance counters | not available |
+//! | other app on the GPU | GPU Engine performance counters | NVML per-process utilization |
 //! | temperature, VRAM | NVML (driver's `nvml.dll`) | NVML (`libnvidia-ml.so`) if present |
+//! | free memory, no card | — | available RAM (`sysinfo`), for processor-only hosts |
 //! | battery | `GetSystemPowerStatus` | `/sys/class/power_supply` |
 
 use std::path::PathBuf;
@@ -30,6 +31,36 @@ pub trait World: Send + Sync + 'static {
     }
     /// Process ids that are ours (the app and the engine), never counted as "another app".
     fn set_own_pids(&self, _pids: Vec<u32>) {}
+    /// Total memory in GB, for hosts that answer on the processor (no card).
+    fn memory_gb(&self) -> Option<f64> {
+        None
+    }
+}
+
+/// Programs that always draw on the GPU on a Linux desktop: the display server and compositor.
+const DESKTOP_GPU: &[&str] = &[
+    "xorg", "xwayland", "gnome-shell", "mutter", "kwin_wayland", "kwin_x11", "plasmashell", "cinnamon", "sway", "hyprland",
+];
+
+/// Utilization above this (percent of the GPU's compute) counts as "using the GPU".
+const BUSY_PERCENT: u32 = 15;
+
+/// Linux `P5-T4`: the busiest process on the GPU that isn't ours or the desktop itself, from
+/// NVML's per-process samples `(pid, compute %)`. Video playback mostly uses the decoder, not
+/// compute, so a browser playing a film doesn't count.
+pub fn busiest_other_gpu_user(samples: &[(u32, u32)], own: &[u32], name_of: impl Fn(u32) -> Option<String>) -> Option<u32> {
+    let mut per_pid: std::collections::HashMap<u32, u32> = Default::default();
+    for (pid, util) in samples {
+        let e = per_pid.entry(*pid).or_default();
+        *e = (*e).max(*util);
+    }
+    per_pid
+        .into_iter()
+        .filter(|(pid, _)| !own.contains(pid))
+        .filter(|(pid, _)| !name_of(*pid).is_some_and(|n| DESKTOP_GPU.contains(&n.to_ascii_lowercase().as_str())))
+        .filter(|(_, u)| *u >= BUSY_PERCENT)
+        .max_by_key(|(_, u)| *u)
+        .map(|(pid, _)| pid)
 }
 
 /// Friendly names for the programs people are likely to list (roadmap D6), by executable.
@@ -98,6 +129,11 @@ pub struct SystemWorld {
     own_pids: Mutex<Vec<u32>>,
     #[cfg(windows)]
     gpu_counters: Mutex<Option<win::GpuCounters>>,
+    #[cfg(target_os = "linux")]
+    idle: Mutex<crate::linux::IdleMonitor>,
+    /// NVML's process samples are "since this timestamp" (microseconds).
+    #[cfg(not(windows))]
+    gpu_seen: Mutex<u64>,
 }
 
 impl SystemWorld {
@@ -109,7 +145,26 @@ impl SystemWorld {
             own_pids: Mutex::new(vec![std::process::id()]),
             #[cfg(windows)]
             gpu_counters: Mutex::new(win::GpuCounters::open().map_err(|e| log::warn!("GPU counters: {e}")).ok()),
+            #[cfg(target_os = "linux")]
+            idle: Mutex::new(crate::linux::IdleMonitor::new(None)),
+            #[cfg(not(windows))]
+            gpu_seen: Mutex::new(0),
         }
+    }
+
+    /// Linux: the busiest other process on the NVIDIA card, from NVML.
+    #[cfg(not(windows))]
+    fn other_gpu_user(&self) -> Option<u32> {
+        let dev = self.nvml.as_ref()?.device_by_index(0).ok()?;
+        let mut seen = self.gpu_seen.lock().unwrap();
+        let samples = dev.process_utilization_stats(*seen).ok()?;
+        *seen = samples.iter().map(|s| s.timestamp).max().unwrap_or(*seen);
+        let samples: Vec<(u32, u32)> = samples.iter().map(|s| (s.pid, s.sm_util)).collect();
+        let own = self.own_pids.lock().unwrap().clone();
+        let sys = self.procs.lock().unwrap();
+        busiest_other_gpu_user(&samples, &own, |pid| {
+            sys.process(sysinfo::Pid::from_u32(pid)).map(|p| p.name().to_string_lossy().to_string())
+        })
     }
 
     fn running_apps(&self) -> (Vec<String>, std::collections::HashMap<u32, String>) {
@@ -156,12 +211,14 @@ impl World for SystemWorld {
                 .map(|pid| by_pid.get(&pid).map(|n| friendly_name(n)).unwrap_or_else(|| "Another program".into()))
         };
         #[cfg(not(windows))]
-        let other_gpu_user = {
-            let _ = by_pid;
-            None
-        };
+        let other_gpu_user =
+            self.other_gpu_user().map(|pid| by_pid.get(&pid).map(|n| friendly_name(n)).unwrap_or_else(|| "Another program".into()));
+        #[cfg(target_os = "linux")]
+        let idle_secs = self.idle.lock().unwrap().idle_secs();
+        #[cfg(not(target_os = "linux"))]
+        let idle_secs = idle_secs();
         Signals {
-            idle_secs: idle_secs(),
+            idle_secs,
             running_apps,
             other_gpu_user,
             gpu_temp_c: self.temp(),
@@ -177,9 +234,23 @@ impl World for SystemWorld {
         Some((format!("{name} {:.0} GB", total), total))
     }
 
+    /// Free memory on the card, or (no card) available RAM, since that's where the model goes.
     fn free_vram_gb(&self) -> Option<f64> {
-        let dev = self.nvml.as_ref()?.device_by_index(0).ok()?;
-        Some(dev.memory_info().ok()?.free as f64 / (1024.0 * 1024.0 * 1024.0))
+        const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+        match self.nvml.as_ref().and_then(|n| n.device_by_index(0).ok()) {
+            Some(dev) => Some(dev.memory_info().ok()?.free as f64 / GB),
+            None => {
+                let mut sys = sysinfo::System::new();
+                sys.refresh_memory();
+                Some(sys.available_memory() as f64 / GB)
+            }
+        }
+    }
+
+    fn memory_gb(&self) -> Option<f64> {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        Some(sys.total_memory() as f64 / (1024.0 * 1024.0 * 1024.0))
     }
 
     fn set_own_pids(&self, pids: Vec<u32>) {
@@ -194,7 +265,7 @@ fn idle_secs() -> Option<u64> {
     win::idle_secs()
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn idle_secs() -> Option<u64> {
     None
 }
@@ -296,7 +367,7 @@ mod win {
                 let mut size = 0u32;
                 let mut count = 0u32;
                 let r = PdhGetFormattedCounterArrayW(self.counter, PDH_FMT_DOUBLE, &mut size, &mut count, None);
-                if r != PDH_MORE_DATA as u32 || size == 0 {
+                if r != PDH_MORE_DATA || size == 0 {
                     return None;
                 }
                 let mut buf = vec![0u8; size as usize];
@@ -354,6 +425,7 @@ struct FileSignals {
     hour: Option<u32>,
     card: Option<(String, f64)>,
     free_vram_gb: Option<f64>,
+    memory_gb: Option<f64>,
 }
 
 impl FileWorld {
@@ -381,6 +453,11 @@ impl World for FileWorld {
 
     fn free_vram_gb(&self) -> Option<f64> {
         self.read().free_vram_gb
+    }
+
+    /// The file's `memory_gb`, or this computer's real memory.
+    fn memory_gb(&self) -> Option<f64> {
+        self.read().memory_gb.or_else(|| SystemWorld::new().memory_gb())
     }
 }
 
@@ -417,6 +494,15 @@ mod tests {
         assert_eq!(s.gpu_temp_c, Some(85.0));
         assert_eq!(s.hour, 3);
         assert_eq!(s.on_battery, None, "missing means can't tell");
+    }
+
+    #[test]
+    fn the_desktop_and_our_own_engine_never_count_as_another_gpu_user() {
+        let names = |pid: u32| Some(match pid { 1 => "gnome-shell", 2 => "Xwayland", 3 => "llama-server", 4 => "blender", 5 => "firefox", _ => "x" }.to_string());
+        // the compositor and our engine are busy; Blender is rendering; Firefox is playing a video
+        let samples = [(1, 40), (2, 30), (3, 99), (4, 60), (4, 70), (5, 3)];
+        assert_eq!(busiest_other_gpu_user(&samples, &[3], names), Some(4));
+        assert_eq!(busiest_other_gpu_user(&[(1, 90), (5, 10)], &[], names), None, "nothing worth pausing for");
     }
 
     #[test]

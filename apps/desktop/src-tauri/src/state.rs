@@ -32,12 +32,24 @@ fn dev_root() -> Option<PathBuf> {
 }
 
 /// The engine manifest bundled by the release workflow (empty in development builds).
+/// `GPU_SHARE_ENGINE_MANIFEST` points at another one, to try the first-run download locally.
 fn engine_manifest(app: &tauri::AppHandle) -> host::engine_setup::Manifest {
-    app.path()
-        .resource_dir()
-        .ok()
-        .and_then(|d| host::engine_setup::Manifest::load(&d.join("engine-manifest.json")))
+    env_path("GPU_SHARE_ENGINE_MANIFEST")
+        .or_else(|| app.path().resource_dir().ok().map(|d| d.join("engine-manifest.json")))
+        .and_then(|p| host::engine_setup::Manifest::load(&p))
         .unwrap_or_default()
+}
+
+/// Flags that put the model where it should run. Windows runs the CUDA build; Linux runs the
+/// Vulkan build, on the NVIDIA card when there is one, otherwise on the processor only
+/// (`--device none`: integrated graphics are often slower than the processor, and their memory
+/// isn't what the budget measures).
+fn placement_args(card: bool) -> Vec<String> {
+    if cfg!(windows) || card {
+        vec!["-ngl".into(), "999".into()]
+    } else {
+        vec!["--device".into(), "none".into()]
+    }
 }
 
 /// Where llama-server is, if it's on this computer already: an override, a copy bundled in the
@@ -95,9 +107,11 @@ impl AppState {
             None => Arc::new(SystemWorld::new()),
         };
         let card = world.card().map(|(name, vram_gb)| host::core::Card { name, vram_gb });
-        // Share mode needs an engine, or (on Windows) an NVIDIA card and an engine to download
+        let has_card = card.is_some();
+        // Share mode needs an engine on this computer, or one to download: on Windows only with
+        // an NVIDIA card (fetched at once), on Linux always (fetched on the first switch-on)
         let found = engine_binary(app, &data_dir, &manifest);
-        let to_set_up = (found.is_none() && cfg!(windows) && card.is_some() && !manifest.files.is_empty())
+        let to_set_up = (found.is_none() && !manifest.files.is_empty() && (card.is_some() || !cfg!(windows)))
             .then(|| host::engine_setup::engine_dir(&data_dir, &manifest.tag));
         let engine = found.clone().or_else(|| to_set_up.as_ref().map(|d| d.join(host::engine_setup::binary_name())));
         let me = Announcement {
@@ -147,8 +161,7 @@ impl AppState {
                     card,
                     engine: EngineConfig {
                         binary,
-                        // the Windows host runs the CUDA build: every layer on the GPU
-                        extra_args: if cfg!(windows) { vec!["-ngl".into(), "999".into()] } else { vec![] },
+                        extra_args: placement_args(has_card),
                         start_timeout: Duration::from_secs(180),
                         memory_cap: None,
                         env: vec![],
@@ -171,27 +184,9 @@ impl AppState {
                     });
                 }
                 if let Some(dir) = to_set_up {
-                    // first run on this computer: fetch the CUDA engine once (P7-T3)
-                    core.set_engine_setup(Some(host::core::ViewDownload { pct: 0.0, stage: "Starting…".into() }));
-                    let core = core.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let total = manifest.total_bytes() as f64;
-                        let progress = |d: u64, _t: u64| {
-                            core.set_engine_setup(Some(host::core::ViewDownload {
-                                pct: d as f64 / total * 100.0,
-                                stage: format!("{:.0} of {:.0} MB", d as f64 / 1e6, total / 1e6),
-                            }))
-                        };
-                        match host::engine_setup::ensure(&core.download_http, &manifest, &dir, host::library::free_space, progress).await {
-                            Ok(_) => {
-                                core.set_engine_setup(None);
-                                core.toast("Ready to share", "The AI engine is set up.");
-                            }
-                            Err(e) => {
-                                core.set_engine_setup(Some(host::core::ViewDownload { pct: 0.0, stage: format!("Couldn't set up the engine: {e}. Restart GPU Share to try again.") }));
-                            }
-                        }
-                    });
+                    // first use on this computer: fetch the engine once (P7-T3, P8-T1)
+                    let when = if cfg!(windows) { host::engine_setup::When::Now } else { host::engine_setup::When::FirstShare };
+                    tauri::async_runtime::spawn(host::engine_setup::drive(core.clone(), manifest, dir, when));
                 }
                 let rt = HostRuntime::new(core, SocketAddr::from(([0, 0, 0, 0], port)), world);
                 tauri::async_runtime::spawn(rt.clone().run());

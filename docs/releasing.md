@@ -9,7 +9,8 @@
 4. The **Release** workflow (`.github/workflows/release.yml`) builds:
    * the Windows installer (NSIS, per-user) with the engine manifest for the pinned llama.cpp
      release,
-   * the Ubuntu `.deb` and AppImage (built on Ubuntu 22.04 so they also run on 24.04),
+   * the Ubuntu `.deb` and AppImage (built on Ubuntu 22.04 so they also run on 24.04), with the
+     engine manifest for the pinned llama.cpp release's Linux Vulkan build,
    and creates a **draft** GitHub release with them attached. Read it over and publish it.
 
 To try a build without a tag, run the workflow by hand (Actions → Release → Run workflow) and
@@ -33,18 +34,22 @@ release with a new tag downloads the new engine once and never mixes files from 
 1. **Read the llama.cpp release notes** between the current tag and the new one for anything
    touching `llama-server`. GPU Share depends on:
    * flags: `-m`, `--host`, `--port`, `--api-key`, `--parallel`, `--ctx-size`, `--alias`,
-     `--no-slots`, `--offline`, `-ngl`, `--chat-template-kwargs` (Qwen3's thinking switch);
+     `--no-slots`, `--offline`, `-ngl`, `--device`, `--chat-template-kwargs` (Qwen3's thinking switch);
    * `GET /health` returning 503 while loading and 200 when ready;
    * streaming `POST /v1/chat/completions` with `stream_options.include_usage` sending a final
      chunk with `usage.prompt_tokens` / `usage.completion_tokens`;
    * the Windows release assets being named `llama-<tag>-bin-win-cuda-12.x-x64.zip` and
-     `cudart-llama-bin-win-cuda-12.x-x64.zip` (the workflow fails loudly if not).
+     `cudart-llama-bin-win-cuda-12.x-x64.zip`, and the Linux one
+     `llama-<tag>-bin-ubuntu-vulkan-x64.tar.gz` with `llama-server` and its libraries in one
+     folder (the workflow fails loudly if not);
+   * `--device none` keeping a Linux host without an NVIDIA card on the processor.
 2. **Change `engine-version.txt`**, delete `.dev/llama-server`, and run `scripts/dev-engine.sh`.
    Check `.dev/llama-server --help` still lists every flag above.
 3. **Run the checks that use the real engine**:
    ```
    cargo test -p host --test real_engine -- --ignored
    scripts/e2e/run.sh eth0          # or your LAN interface
+   scripts/e2e/installed.sh eth0    # the installed .deb, Ubuntu to Ubuntu, real engine + Qwen3 0.6B
    ```
 4. **On the host laptop** (the RTX A2000): install a build from the Release workflow, let it
    download the new engine, and compare load time, reply speed and VRAM use with the numbers in

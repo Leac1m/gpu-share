@@ -259,3 +259,114 @@ async fn first_run_engine_setup_downloads_verifies_and_unpacks() {
     // a second start finds it ready without downloading
     assert!(host::engine_setup::ensure(&reqwest::Client::new(), &manifest, &engine, plenty, |_, _| panic!("downloaded again")).await.is_ok());
 }
+
+#[tokio::test]
+async fn the_linux_engine_waits_for_the_first_switch_on_then_unpacks_the_tar_gz() {
+    // a .tar.gz shaped like llama.cpp's Linux builds: a top folder, a library behind a symlink
+    let tgz = {
+        let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let mut t = tar::Builder::new(gz);
+        for (name, data, mode) in [("llama-b1/llama-server", &b"server"[..], 0o755), ("llama-b1/libggml.so.0", b"lib", 0o644)] {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(data.len() as u64);
+            h.set_mode(mode);
+            h.set_cksum();
+            t.append_data(&mut h, name, data).unwrap();
+        }
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Symlink);
+        h.set_size(0);
+        t.append_link(&mut h, "llama-b1/libggml.so", "libggml.so.0").unwrap();
+        t.into_inner().unwrap().finish().unwrap()
+    };
+    let (url, srv) = server(tgz.clone()).await;
+    let manifest = host::engine_setup::Manifest {
+        tag: "b1".into(),
+        files: vec![host::engine_setup::ManifestFile {
+            url: format!("{url}?name=llama-b1-bin-ubuntu-vulkan-x64.tar.gz"),
+            sha256: hex::encode(Sha256::digest(&tgz)),
+            size: tgz.len() as u64,
+        }],
+    };
+    let h = start_host(&[]).await;
+    h.core.set_sharing(false);
+    let dir = host::engine_setup::engine_dir(h.dir.path(), "b1");
+    tokio::spawn(host::engine_setup::drive(h.core.clone(), manifest, dir.clone(), host::engine_setup::When::FirstShare));
+
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(srv.hits.load(Ordering::SeqCst), 0, "nothing is downloaded on a computer that only uses");
+    assert!(!h.core.engine_ready(), "but sharing can't start without it");
+    assert!(h.core.view().engine_setup.is_none(), "and there's no progress bar yet");
+
+    h.core.set_sharing(true);
+    for _ in 0..100 {
+        if h.core.engine_ready() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(h.core.engine_ready());
+    assert_eq!(srv.hits.load(Ordering::SeqCst), 1);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = dir.join("llama-server");
+        assert_ne!(std::fs::metadata(&bin).unwrap().permissions().mode() & 0o111, 0, "executable");
+        assert_eq!(std::fs::read_link(dir.join("libggml.so")).unwrap(), std::path::PathBuf::from("libggml.so.0"));
+    }
+    assert!(!dir.with_file_name("b1.partial").exists() && !dir.with_file_name("b1.downloads").exists(), "no leftovers");
+}
+
+#[tokio::test]
+async fn a_failed_engine_setup_is_retried_by_switching_sharing_off_and_on() {
+    let body = b"not the archive we expected".to_vec();
+    let (url, srv) = server(body.clone()).await;
+    let manifest = host::engine_setup::Manifest {
+        tag: "b2".into(),
+        files: vec![host::engine_setup::ManifestFile { url: format!("{url}?name=x.tar.gz"), sha256: "0".repeat(64), size: body.len() as u64 }],
+    };
+    let h = start_host(&[]).await;
+    let dir = host::engine_setup::engine_dir(h.dir.path(), "b2");
+    tokio::spawn(host::engine_setup::drive(h.core.clone(), manifest, dir, host::engine_setup::When::Now));
+    let stage = || h.core.view().engine_setup.map(|d| d.stage).unwrap_or_default();
+    for _ in 0..100 {
+        if stage().contains("Switch sharing off and on") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(stage().contains("Switch sharing off and on"), "{}", stage());
+    let hits = srv.hits.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(srv.hits.load(Ordering::SeqCst), hits, "no retry loop on its own");
+    h.core.set_sharing(false);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    h.core.set_sharing(true);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(srv.hits.load(Ordering::SeqCst) > hits, "switching back on tries again");
+    assert!(!h.core.engine_ready());
+}
+
+/// The real Linux engine from the pinned llama.cpp release, through the app's own download,
+/// checksum and unpacking code, then started (`P8-T1`). Run with `-- --ignored`.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "downloads 30 MB from github.com"]
+async fn the_real_linux_engine_downloads_unpacks_and_runs() {
+    let tag = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine-version.txt")).unwrap().trim().to_string();
+    let url = format!("https://github.com/ggml-org/llama.cpp/releases/download/{tag}/llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz");
+    let http = reqwest::Client::new();
+    // the checksum the release workflow would put in the manifest
+    let body = http.get(&url).send().await.unwrap().error_for_status().unwrap().bytes().await.unwrap();
+    let manifest = host::engine_setup::Manifest {
+        tag: tag.clone(),
+        files: vec![host::engine_setup::ManifestFile { url, sha256: hex::encode(Sha256::digest(&body)), size: body.len() as u64 }],
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let engine = host::engine_setup::engine_dir(dir.path(), &tag);
+    let bin = host::engine_setup::ensure(&http, &manifest, &engine, plenty, |_, _| {}).await.unwrap();
+    let out = std::process::Command::new(&bin).args(["--device", "none", "--version"]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("version"), "{text}");
+}

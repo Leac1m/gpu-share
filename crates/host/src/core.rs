@@ -105,6 +105,8 @@ pub struct HostCore {
     /// The latest reading of the computer's state, for the owner's screen.
     signals: Mutex<crate::policy::Signals>,
     world: Mutex<Option<Arc<dyn crate::world::World>>>,
+    /// Total RAM, read once from the world: the limit for hosts without a card.
+    memory_gb: Mutex<Option<f64>>,
     /// The catalog in use: bundled or fetched, plus models added from a link, with shapes read
     /// from the files that are on disk.
     catalog: Mutex<Vec<CatalogEntry>>,
@@ -165,6 +167,7 @@ impl HostCore {
             pairing: Default::default(),
             signals: Mutex::new(Default::default()),
             world: Mutex::new(None),
+            memory_gb: Mutex::new(None),
             catalog: Mutex::new(vec![]),
             downloads: Mutex::new(Default::default()),
             network_warning: Mutex::new(None),
@@ -268,6 +271,12 @@ impl HostCore {
         *self.engine_setup.lock().unwrap() = d;
     }
 
+    /// The engine isn't on this computer yet: stay paused, without a progress banner until the
+    /// download starts.
+    pub fn set_engine_missing(&self) {
+        self.engine_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     pub fn engine_ready(&self) -> bool {
         self.engine_ready.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -342,6 +351,7 @@ impl HostCore {
     // ------------------------------------------------------------------ signals
 
     pub fn attach_world(&self, world: Arc<dyn crate::world::World>) {
+        *self.memory_gb.lock().unwrap() = world.memory_gb();
         *self.world.lock().unwrap() = Some(world);
     }
 
@@ -556,6 +566,8 @@ impl HostCore {
         };
         let pending = self.pairing.pending().map(|p| ViewPending { id: p.device, name: p.name, code: p.code });
         let network_warning = self.network_warning.lock().unwrap().clone();
+        let idle_known = self.signals.lock().unwrap().idle_secs.is_some();
+        let memory_gb = *self.memory_gb.lock().unwrap();
         let engine_setup = self.engine_setup.lock().unwrap().clone();
 
         let mut inner = self.inner.lock().unwrap();
@@ -612,6 +624,8 @@ impl HostCore {
             running_apps,
             network_warning,
             engine_setup,
+            idle_known,
+            memory_gb,
             settings,
         }
     }
@@ -648,6 +662,12 @@ pub struct HostView {
     pub running_apps: Vec<String>,
     pub network_warning: Option<String>,
     pub engine_setup: Option<ViewDownload>,
+    /// Whether this computer can tell when the owner is using it (false on Linux desktops other
+    /// than GNOME, until the first reading).
+    pub idle_known: bool,
+    /// Total RAM, for hosts that answer on the processor.
+    #[serde(rename = "memoryGB")]
+    pub memory_gb: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

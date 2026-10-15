@@ -66,7 +66,8 @@ impl HostRuntime {
         // 2. apply the decision
         if let Gate::Paused { owner, countdown: false, .. } = &gate {
             if !matches!(self.core.gate(), Gate::Paused { .. }) {
-                self.core.toast("Sharing paused", format!("{owner}. Your graphics card is free again."));
+                let freed = if self.core.cfg.card.is_some() { "Your graphics card is free again" } else { "The model was unloaded" };
+                self.core.toast("Sharing paused", format!("{owner}. {freed}."));
             }
         }
         let off = gate == Gate::Off;
@@ -126,10 +127,13 @@ impl HostRuntime {
             }
         }
 
-        // 5. every half minute: is the network one Windows lets friends reach? (P7-T2)
+        // 5. every half minute: can friends reach this computer? Windows "Public" networks
+        // (P7-T2) and Ubuntu's ufw (P8-T6)
         if self.ticks.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(30) {
             let public = tokio::task::spawn_blocking(netcore::lan::network_is_public).await.unwrap_or(None);
-            self.core.set_network_warning(netcore::lan::public_network_warning(public));
+            let warning = netcore::lan::public_network_warning(public)
+                .or_else(|| netcore::lan::host_firewall_warning(netcore::lan::ufw_enabled(), self.core.cfg.port));
+            self.core.set_network_warning(warning);
         }
 
         // 6. keep the PC awake only while actually serving (P5-T9)

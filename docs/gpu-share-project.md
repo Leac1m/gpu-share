@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| Document version | 0.3 (draft) |
-| Last updated | 9 October 2026 |
+| Document version | 0.4 (draft) |
+| Last updated | 15 October 2026 |
 | Status | Phase 1 prototype updated for several friends sharing one host. Nothing real behind it yet. |
-| Pilot setup | One host (Windows, NVIDIA RTX A2000 8 GB) and several clients on the same local network: the developer's Ubuntu PC (no GPU) plus other friends |
+| Pilot setup | One host (Windows, NVIDIA RTX A2000 8 GB) and several clients on the same local network: the developer's Ubuntu PC (no GPU) plus other friends. Ubuntu computers can host too, for Ubuntu-to-Ubuntu testing |
 
 ---
 
@@ -73,6 +73,7 @@ What 8 GB of VRAM means in practice: a 7-8B model at 4-bit quantization takes ro
 | R7 | Chat with the models each host offers | Streaming replies, model picker, stop button. |
 | R7a | Several friends can share one host | One request at a time, first come first served, with each waiting client told its place in line. See section 6.8. |
 | R8 | Client runs on Ubuntu | Also Windows. |
+| R8a | Ubuntu computers can host too | With an NVIDIA card, or on the processor alone (slow; small models). Added in v0.4 for Ubuntu-to-Ubuntu testing. See section 6.11. |
 | R9 | Hosts can add and remove models | Curated catalog with "fits your GPU" badges. |
 | R10 | Ready for renting later | Per-device identity and usage counts from day one. |
 | R11 | Ready for remote access later | Network layer kept separate so Tailscale can be added. |
@@ -125,10 +126,10 @@ Useful Rust crates (to verify during Phase 2): `tokio`, `axum`, `reqwest`, `rust
 
 Every install is the same app with two modes:
 
-- **Share mode (host).** Only appears on machines with a supported NVIDIA GPU. Contains the switch, the settings, the model library, and the paired-devices list.
+- **Share mode (host).** On Windows, only appears on machines with a supported NVIDIA GPU. On Ubuntu it is always available, with or without a GPU (section 6.11). Contains the switch, the settings, the model library, and the paired-devices list.
 - **Use mode (client).** Available everywhere. Contains the device list and chat.
 
-The Ubuntu build ships without the AI engine, which keeps it small. A CPU-only host mode for Linux can be added later if needed.
+Neither installer contains the AI engine, which keeps them small: it is downloaded and checked on first use (section 6.10). The app opens in Share mode where sharing is the point (an NVIDIA card, or sharing already set up) and in Use mode otherwise.
 
 ### 6.2 AI engine and supervisor (host)
 
@@ -297,13 +298,24 @@ Everything else returns 404. The gatekeeper also:
 
 ### 6.10 Packaging and updates
 
-| | Windows (host and client) | Ubuntu (client) |
+| | Windows (host and client) | Ubuntu (host and client) |
 |---|---|---|
-| Package | NSIS installer, per-user install | `.deb` (22.04 and 24.04) and AppImage |
-| Extra requirements | NVIDIA driver (already installed on the host) | WebKitGTK 4.1 (pulled in by the `.deb`) |
+| Package | NSIS installer, per-user install | `.deb` (22.04 and later) and AppImage |
+| Extra requirements | NVIDIA driver (already installed on the host) | WebKitGTK 4.1 (pulled in by the `.deb`). To share an NVIDIA card: the NVIDIA driver, with its Vulkan support |
 | Tray icon | Native | AppIndicator (supported on stock Ubuntu) |
-| Engine | `llama-server` CUDA build. The CUDA runtime files are several hundred MB, so they may be downloaded on first run to keep the installer small. | Not included |
-| Firewall | Rule for private networks added by the installer | Only needed if `ufw` is enabled |
+| Engine | `llama-server` CUDA build plus the CUDA runtime, several hundred MB, downloaded and checked on first run | `llama-server` Vulkan build, about 30 MB, downloaded and checked the first time sharing is switched on, so computers that only use never fetch it |
+| Firewall | Rule for private networks added by the installer | Only needed if `ufw` is enabled; the Share screen gives the commands |
+
+### 6.11 Ubuntu hosts
+
+Added in v0.4 so the app can be tried Ubuntu to Ubuntu. The host works the same way as on Windows, with these differences:
+
+- **Where the model runs.** With an NVIDIA card, on the card through the Vulkan build. Without one, on the processor only (`--device none`, so integrated graphics are never used): expect a few words a second, and pick a small model. The catalog includes Qwen3 0.6B and 1.7B for this. The memory limit is then measured against the computer's RAM, and the temperature and "another app is using the GPU" rules don't apply.
+- **"Pause while I'm using the computer"** reads the idle time from GNOME (Ubuntu's standard desktop) over D-Bus. Other desktops don't offer it reliably; there the rule has no effect and the Limits screen says so.
+- **Another app on the GPU** comes from the NVIDIA driver's per-process utilization. The desktop itself (GNOME Shell, Xorg, Xwayland) doesn't count, and neither does video playback, which mostly uses the decoder.
+- **Staying awake** while answering uses a logind sleep inhibitor, released as soon as the answer is done.
+- **The engine** runs at a lower priority (`nice` 10) and is killed if the app dies, the counterpart of the Windows Job Object.
+- **Closing the window** keeps the app in the tray while sharing is on; otherwise it quits.
 
 **Updates.** Tauri's auto-updater with signed update packages, so engine security fixes reach hosts without them doing anything.
 
@@ -476,3 +488,4 @@ Answers and their status are tracked in [roadmap.md](roadmap.md#decisions), not 
 | 0.1 | 11 September 2026 | First draft, based on the planning discussions. |
 | 0.2 | 12 September 2026 | GPU confirmed as RTX A2000 8 GB. Phase 1 prototype built. |
 | 0.3 | 9 October 2026 | Several friends can share one host: queue with place in line, one waiting request per device, model swap cost noted. Friends see general pause reasons, not the owner's open programs. Limits shown in tokens with approximate words. Client status labels aligned with the prototype. Prototype updated to build 0.2 to match. |
+| 0.4 | 15 October 2026 | Ubuntu computers can host too (R8a, section 6.11), with an NVIDIA card or on the processor alone, for Ubuntu-to-Ubuntu testing. The engine is downloaded on first use on both platforms. |

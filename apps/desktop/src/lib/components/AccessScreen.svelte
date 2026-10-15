@@ -18,7 +18,7 @@
 			<div class="t">{p.name}</div>
 			<div class="d mono">
 				{u.reqs} question{u.reqs === 1 ? '' : 's'} · about {fmtNum(u.tokOut)} tokens written · {minutes(u.gpuSec)}
-				min of card time
+				min of {h.card ? 'card' : 'computer'} time
 			</div>
 		</div>
 		<div class="ctl">

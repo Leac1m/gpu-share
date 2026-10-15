@@ -4,6 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { ClientBackend, ClientView, HostBackend, HostView } from '../types';
+import { ui } from '../ui.svelte';
 
 function emptyHost(): HostView {
 	return {
@@ -50,7 +51,9 @@ function emptyHost(): HostView {
 		toasts: [],
 		runningApps: [],
 		networkWarning: null,
-		engineSetup: null
+		engineSetup: null,
+		idleKnown: true,
+		memoryGB: null
 	};
 }
 
@@ -88,6 +91,9 @@ export async function connect() {
 	capability.canShare = !!h;
 	if (h) Object.assign(host, h);
 	Object.assign(client, c);
+	// Open on Share mode where sharing is the point (a graphics card, or set up already); on a
+	// Linux computer without a card that hasn't shared yet, open on "Use a friend's".
+	ui.mode = h && (h.card || h.sharing || h.settings.welcomed) ? 'share' : 'use';
 	capability.ready = true;
 }
 

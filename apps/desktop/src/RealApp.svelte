@@ -8,6 +8,7 @@
 	import ChatScreen from './lib/components/ChatScreen.svelte';
 	import Toasts from './lib/components/Toasts.svelte';
 	import PairModal from './lib/components/PairModal.svelte';
+	import { hardware } from './lib/hardware';
 
 	connect();
 
@@ -46,7 +47,7 @@
 	{#if capability.canShare}
 		<div class="modes" role="tablist">
 			<button class="tbtn" role="tab" aria-selected={mode === 'share'} onclick={() => (ui.mode = 'share')}>
-				<span class="traydot" style="background:{dot}"></span> Share my graphics card
+				<span class="traydot" style="background:{dot}"></span> {hardware(hostBackend.view).shareLabel}
 			</button>
 			<button class="tbtn" role="tab" aria-selected={mode === 'use'} onclick={() => (ui.mode = 'use')}>
 				Use a friend's
