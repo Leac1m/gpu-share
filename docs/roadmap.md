@@ -82,14 +82,15 @@ on real machines.
 **Manual verification checklist** (real hardware/network only, tracked here rather than in CI):
 
 - [ ] Windows idle timer and away-countdown feel right to the owner (`P5-T2`)
-- [ ] Named-app pause list actually catches the owner's creative apps (`P5-T3`)
+- [x] Named-app pause list actually catches the owner's creative apps (`P5-T3`) — a listed app paused sharing on the A2000 laptop, 2026-10-15
 - [ ] GPU performance-counter pause fires when another app grabs the GPU, and not for a browser playing video (`P5-T4`, threshold in `world.rs`)
 - [ ] NVML temperature hysteresis on the real A2000 — no flapping (`P5-T5`)
 - [ ] Battery / plugged-in detection (`P5-T6`)
 - [ ] The PC doesn't sleep while a friend's question is being answered, and does sleep again once sharing is idle (`P5-T9`)
-- [ ] Real multicast discovery across the actual home router, including the client-isolation case (`P3-T2`, `P3-T7`). If multicast fails there, check whether `GPU_SHARE_IFACE` with the Wi-Fi adapter's name fixes it
+- [x] Real multicast discovery across the actual home router (`P3-T2`) — a friend found the Windows laptop, and two Ubuntu computers found each other, without Add by IP, 2026-10-15
+- [ ] The client-isolation explanation on a network that keeps devices apart, e.g. a guest Wi-Fi (`P3-T7`). If multicast fails somewhere, check whether `GPU_SHARE_IFACE` with the Wi-Fi adapter's name fixes it
 - [ ] Windows network-profile (Private vs Public) first-run check (`P7-T2`)
-- [ ] Installer + firewall rule on a clean Windows machine (`P7-T1`)
+- [x] Installer + firewall rule on a Windows machine (`P7-T1`) — on the owner's laptop (not a fresh Windows install): firewall prompt, first-run engine download, a friend reached it over Wi-Fi, 2026-10-15
 - [ ] Tray icon on both platforms (`P7-T5`)
 - [ ] Tokens/sec, load time, VRAM, temperature on the real A2000 (`P5-T11`)
 - [ ] Engine Job Object on Windows: closing the app kills `llama-server`, priority shows Below normal in Task Manager (`P2-T4`)
@@ -107,11 +108,11 @@ on real machines.
 | [0](#phase-0--foundations) | Foundations and decisions | 6 / 6 | Done |
 | [1](#phase-1--clickable-prototype) | Clickable prototype | 5 / 10 | Build 0.2 in the repo and the Svelte app; feedback not yet gathered |
 | [2](#phase-2--real-chat-end-to-end) | Real chat end to end | 10 / 10 | Done |
-| [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Built and tested on one machine; the real home network check is still to do |
+| [3](#phase-3--discovery) | Discovery on the LAN | 8 / 8 | Done; works across the real home router. The client-isolation message is untested |
 | [4](#phase-4--pairing-and-security) | Pairing and security | 7 / 7 | Done |
-| [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the rules and measurements on the real laptop are still to do (`P5-T11`, manual checklist) |
+| [5](#phase-5--limits-wired-up) | Limits wired up | 10 / 11 | Built; the named-app pause works on the real laptop. The other rules and the measurements are still to do (`P5-T11`, manual checklist) |
 | [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
-| [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | Installers built by the Release workflow; the updater, code signing and the pilot are the project author's calls |
+| [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | The Windows installer and the Ubuntu packages work on the author's machines; the updater, code signing and the pilot are the project author's calls |
 | [8](#phase-8--ubuntu-hosts) | Ubuntu hosts | 8 / 9 | Ubuntu shares with or without a GPU; installed package tested Ubuntu to Ubuntu on the processor. The NVIDIA-card check on a real Ubuntu desktop is still to do |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
@@ -712,6 +713,18 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 >   `appimagetool`. The `.deb` uses system libraries and was never affected. The gvfs
 >   `g_task_set_static_name` warnings on startup are harmless (host gvfs vs the bundled GLib).
 
+> Manual checks · 2026-10-15 · project author (written up by Claude)
+> * Windows laptop with the RTX A2000: installed from a Release build (firewall prompt, CUDA
+>   engine downloaded on first run, `P7-T1`, `P7-T3`); a friend's computer found it over the home
+>   Wi-Fi and chatted with a model on the card (`P3-T2`); opening an app on the pause list paused
+>   sharing (`P5-T3`).
+> * Ubuntu to Ubuntu without a GPU: the two computers found each other on their own; switching
+>   sharing on downloaded the Linux engine, and a small Qwen3 model answered on the processor
+>   (`P8-T1`, `P8-T2`).
+> * Not tried yet: Quit stopping `llama-server` on Windows (`P2-T4`), the idle, other-GPU-app,
+>   temperature, battery and keep-awake rules (`P5-T2`, `P5-T4`–`P5-T6`, `P5-T9`), GNOME idle
+>   time and the tray on Ubuntu (`P8-T3`, `P8-T7`), and the speed measurements (`P5-T11`).
+
 ---
 
 ## Phase 8 — Ubuntu hosts
@@ -836,3 +849,4 @@ task that depended on it. If you resolve something not listed here, add a row.
 | 13 October 2026 | Spec updated to v0.3. Added `P1-T9`, `P1-T10`, `P2-T10` for what v0.3 introduced. Decisions D8 and D10 recorded, D9 added, recommendations noted on D3–D6. "Where the project stands today" corrected to mention the scaffold. Cloud-session setup added (`CLAUDE.md`, `scripts/cloud-setup.sh`). |
 | 13 October 2026 | Phases 2–7 built in one session (Claude Opus 5.5): real chat, discovery, pairing, limits, model library, installers. Remaining: manual checks on real hardware, `P1-T4`–`P1-T8`, `P5-T11`, `P6-T1` (hosting, D3), `P7-T6`/`P7-T7`/`P7-T9`. |
 | 15 October 2026 | Phase 8 added and built: Ubuntu computers can host, with an NVIDIA card or on the processor (D11, spec v0.4). L-T4 pulled forward into it. |
+| 15 October 2026 | First checks on the author's machines recorded: discovery on the home router, the Windows installer and firewall rule, the named-app pause, Ubuntu-to-Ubuntu on the processor. |
