@@ -2,6 +2,7 @@
 	import { clientBackend } from '../backend';
 	import { ui } from '../ui.svelte';
 	import StatusChip from './StatusChip.svelte';
+	import LocalApiPanel from './LocalApiPanel.svelte';
 
 	const c = clientBackend.view;
 
@@ -129,3 +130,5 @@
 	</p>
 	{@render addIp()}
 {/if}
+
+<LocalApiPanel />

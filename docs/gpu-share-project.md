@@ -281,6 +281,7 @@ The gatekeeper is the only part of the host reachable from the network. It is an
 Everything else returns 404. The gatekeeper also:
 
 - caps `max_tokens` and ignores request parameters that could raise resource use beyond the owner's limits;
+- lets OpenAI-style tool calling through, rebuilt field by field: function tools with plain names (at most 64, 64 KB in all), `tool_choice`, `tool` result messages and the assistant's `tool_calls`, and `response_format` (text, JSON, or a JSON schema up to 16 KB). A tool call is only text the model writes: the host never runs anything, the program on the asking computer decides what to do with it;
 - queues requests from all paired devices, first come first served, with one running at a time, and tells each waiting client its place in line;
 - allows each paired device one request in the queue at a time, so one friend can't fill the line;
 - when the next request in line wants a different model from the one loaded, stops the current engine process and starts one for the new model, which adds that model's load time (estimated at 4 to 9 seconds on the host, to be measured in Phase 5);
@@ -294,7 +295,7 @@ Everything else returns 404. The gatekeeper also:
 - **Waiting in line.** When other friends' questions are ahead, the chat shows the client's place in line ("You're 2nd in line") and a Cancel button. It never shows whose questions are ahead or what they asked.
 - **Graceful pauses.** If the host pauses mid-chat, the chat shows the reason and offers to retry when the host is available again.
 - **History.** Stored in SQLite on the client. Nothing is kept on the host.
-- **Local API.** An OpenAI-compatible address on localhost that forwards to the chosen host, so editors and scripts on the client can use the host's GPU too.
+- **Local API ("Use from other apps").** An OpenAI-compatible address on this computer (`http://127.0.0.1:50125/v1` by default) so editors, scripts and agent harnesses can use a paired host's models, tool calling included, as their "brain". Off until the user switches it on. It listens on `127.0.0.1` only, needs the key the app shows (kept in the data folder so a program's settings stay valid; "New key" replaces it), refuses requests whose `Host` isn't this address (DNS rebinding), and sends no CORS headers. `GET /v1/models` lists every model the paired computers (and, on a host, this computer) offer; `POST /v1/chat/completions` goes to the first of them offering the model asked for, preferring this computer, then the one the chat is open with. Requests travel over the same pinned, authenticated connection as the chat, so they wait in that host's line and follow its owner's limits; a paused host is a `503` with the reason. Small models are weaker at tool calling than large ones, and harness prompts are long, so the owner may need to raise the context size.
 
 ### 6.10 Packaging and updates
 

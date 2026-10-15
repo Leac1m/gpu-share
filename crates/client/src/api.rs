@@ -102,6 +102,18 @@ impl HostClient {
 
     /// Starts a streaming chat. Dropping the returned stream cancels the request on the host.
     pub async fn chat(&self, req: &ChatRequest) -> Result<ChatStream, ClientError> {
+        let resp = self.open_chat(req).await?;
+        Ok(sse_stream(resp, parse_frame))
+    }
+
+    /// The same stream with the OpenAI chunks as they came, for passing on unchanged (the
+    /// local API, `P9-T2`).
+    pub async fn chat_raw(&self, req: &ChatRequest) -> Result<RawStream, ClientError> {
+        let resp = self.open_chat(req).await?;
+        Ok(sse_stream(resp, parse_raw_frame))
+    }
+
+    async fn open_chat(&self, req: &ChatRequest) -> Result<reqwest::Response, ClientError> {
         let mut req = req.clone();
         req.stream = Some(true);
         let resp = self
@@ -115,40 +127,58 @@ impl HostClient {
             let bytes = resp.bytes().await.unwrap_or_default();
             return Err(api_error(status.as_u16(), &bytes));
         }
-        let bytes = resp.bytes_stream();
-        let s = futures_util::stream::unfold(
-            (bytes, String::new(), std::collections::VecDeque::new(), false),
-            |(mut bytes, mut buf, mut ready, mut done)| async move {
-                loop {
-                    if let Some(ev) = ready.pop_front() {
-                        return Some((ev, (bytes, buf, ready, done)));
+        Ok(resp)
+    }
+}
+
+/// What [`HostClient::chat_raw`] yields.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RawEvent {
+    Queue(QueueEvent),
+    /// One OpenAI `chat.completion.chunk`.
+    Data(Value),
+}
+
+pub type RawStream = Pin<Box<dyn Stream<Item = Result<RawEvent, ClientError>> + Send>>;
+
+/// Splits a server-sent-events body into frames and parses each with `parse`.
+fn sse_stream<T: Send + 'static>(
+    resp: reqwest::Response,
+    parse: fn(&str) -> Frame<T>,
+) -> Pin<Box<dyn Stream<Item = Result<T, ClientError>> + Send>> {
+    let bytes = resp.bytes_stream();
+    let s = futures_util::stream::unfold(
+        (bytes, String::new(), std::collections::VecDeque::new(), false),
+        move |(mut bytes, mut buf, mut ready, mut done)| async move {
+            loop {
+                if let Some(ev) = ready.pop_front() {
+                    return Some((ev, (bytes, buf, ready, done)));
+                }
+                if done {
+                    return None;
+                }
+                match bytes.next().await {
+                    None => return None,
+                    Some(Err(e)) => {
+                        done = true;
+                        ready.push_back(Err(ClientError::Network(e.to_string())));
                     }
-                    if done {
-                        return None;
-                    }
-                    match bytes.next().await {
-                        None => return None,
-                        Some(Err(e)) => {
-                            done = true;
-                            ready.push_back(Err(ClientError::Network(e.to_string())));
-                        }
-                        Some(Ok(chunk)) => {
-                            buf.push_str(&String::from_utf8_lossy(&chunk));
-                            while let Some(i) = buf.find("\n\n") {
-                                let frame: String = buf.drain(..i + 2).collect();
-                                match parse_frame(&frame) {
-                                    Frame::Events(evs) => ready.extend(evs.into_iter().map(Ok)),
-                                    Frame::Done => done = true,
-                                    Frame::Skip => {}
-                                }
+                    Some(Ok(chunk)) => {
+                        buf.push_str(&String::from_utf8_lossy(&chunk));
+                        while let Some(i) = buf.find("\n\n") {
+                            let frame: String = buf.drain(..i + 2).collect();
+                            match parse(&frame) {
+                                Frame::Events(evs) => ready.extend(evs.into_iter().map(Ok)),
+                                Frame::Done => done = true,
+                                Frame::Skip => {}
                             }
                         }
                     }
                 }
-            },
-        );
-        Ok(Box::pin(s))
-    }
+            }
+        },
+    );
+    Box::pin(s)
 }
 
 fn api_error(status: u16, bytes: &[u8]) -> ClientError {
@@ -158,13 +188,14 @@ fn api_error(status: u16, bytes: &[u8]) -> ClientError {
     }
 }
 
-enum Frame {
-    Events(Vec<ChatEvent>),
+enum Frame<T> {
+    Events(Vec<T>),
     Done,
     Skip,
 }
 
-fn parse_frame(frame: &str) -> Frame {
+/// The `event:` name and the `data:` text of one frame.
+fn frame_parts(frame: &str) -> (Option<String>, String) {
     let mut event = None;
     let mut data = String::new();
     for line in frame.lines() {
@@ -174,6 +205,28 @@ fn parse_frame(frame: &str) -> Frame {
             data.push_str(d.trim_start());
         }
     }
+    (event, data)
+}
+
+fn parse_raw_frame(frame: &str) -> Frame<RawEvent> {
+    let (event, data) = frame_parts(frame);
+    if data.trim() == "[DONE]" {
+        return Frame::Done;
+    }
+    if event.as_deref() == Some(QUEUE_EVENT) {
+        return match serde_json::from_str::<QueueEvent>(&data) {
+            Ok(q) => Frame::Events(vec![RawEvent::Queue(q)]),
+            Err(_) => Frame::Skip,
+        };
+    }
+    match serde_json::from_str::<Value>(&data) {
+        Ok(v) => Frame::Events(vec![RawEvent::Data(v)]),
+        Err(_) => Frame::Skip,
+    }
+}
+
+fn parse_frame(frame: &str) -> Frame<ChatEvent> {
+    let (event, data) = frame_parts(frame);
     if data.trim() == "[DONE]" {
         return Frame::Done;
     }

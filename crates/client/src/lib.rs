@@ -3,4 +3,5 @@
 pub mod api;
 pub mod discovery;
 pub mod history;
+pub mod local_api;
 pub mod runtime;

@@ -13,6 +13,7 @@ writes is added.
 | Discovery | `0.0.0.0:53737` UDP, group `239.192.152.143`, TTL 1 | App running | JSON announcements |
 | Owner's own listener (`P9-T1`) | `127.0.0.1:<random>` TCP | Share mode available (sharing on or off) | HTTPS, same as the gatekeeper; only `/api/info`, `/v1/models`, `/v1/chat/completions` |
 | Engine (`llama-server`) | `127.0.0.1:<random>` TCP | A model is loaded | HTTP, random API key per start |
+| Local API (`P9-T2`, any computer) | `127.0.0.1:50125` TCP | Switched on by the user (off by default) | HTTP, OpenAI-compatible, key required |
 
 The owner's own listener lets the owner's Use mode reach his own GPU. It binds the loopback
 address, has no pairing or discovery routes, and its paired endpoints need all three of: a
@@ -21,6 +22,14 @@ and a token made fresh by each run of the app and held only in memory
 (`tests/owner_use.rs::only_this_installs_certificate_with_the_token_gets_in`). A paired friend's
 certificate and token don't open it. The owner's questions skip the pause rules and aren't
 counted as anyone's usage; friends' requests through the main gatekeeper are unchanged.
+
+The local API lets programs on the *asking* computer use paired hosts. It binds the loopback
+address, needs the key shown in the app (constant-time compare), refuses any `Host` header other
+than `127.0.0.1:<port>` / `localhost:<port>` so a web page can't reach it by DNS rebinding, and
+sends no CORS headers. It has two routes and forwards through the existing pinned, authenticated
+client, so a host sees exactly the requests that computer's chat could already send
+(`tests/local_api.rs`). Anyone who can run programs as that user can read the key from the data
+folder, the same as the device token; it gives no more than the user already has.
 
 Nothing else listens. The engine is not reachable from the network at all: it binds the loopback
 address, and its API key is generated fresh for every start and never leaves the host process
@@ -67,6 +76,10 @@ address, and its API key is generated fresh for every start and never leaves the
   `--ctx-size`, `-ngl`, …) makes the whole entry be skipped
   (`library::tests::a_catalog_can_only_pass_a_few_harmless_engine_flags`). Downloads stay limited
   to huggingface.co over HTTPS with a SHA-256.
+* **Tool calls** (`P9-T3`) are text the model writes for the asking computer's program to act
+  on. The host never runs a tool. Tools, `tool_choice`, tool messages and `response_format` are
+  rebuilt field by field from an allowlist with size caps; anything else in them is dropped and a
+  malformed one refuses the request (`clamp::tests`, `tests/local_api.rs`).
 * **Engine-side features** that could be abused (grammars, `n`, logprobs, `n_predict`) are not in
   `ChatRequest`, so they are dropped on parse (`protocol::api` test
   `unknown_request_fields_are_dropped_on_parse`).

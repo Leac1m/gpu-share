@@ -197,6 +197,8 @@ export interface ClientView {
 	networkHint: string;
 	/** A one-off message for the Computers screen, e.g. the owner turned a pairing request down. */
 	notice: string;
+	/** The local OpenAI-compatible address for other programs on this computer (P9-T2). */
+	localApi: { enabled: boolean; url: string; key: string; error: string };
 }
 
 export interface ClientBackend {
@@ -214,4 +216,8 @@ export interface ClientBackend {
 	retry(): void;
 	setModel(id: string): void;
 	forget(hostId: string): void;
+	/** Switch the local API on or off. */
+	setLocalApi(on: boolean): void;
+	/** Make a new key; programs using the old one stop working. */
+	newLocalApiKey(): void;
 }

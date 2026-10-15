@@ -114,7 +114,7 @@ on real machines.
 | [6](#phase-6--model-library) | Model library | 7 / 8 | Download, verify and "fits your GPU" work end to end; publishing the catalog (D3) is open |
 | [7](#phase-7--installers-updates-pilot) | Installers, updates, pilot | 6 / 9 | The Windows installer and the Ubuntu packages work on the author's machines; the updater, code signing and the pilot are the project author's calls |
 | [8](#phase-8--ubuntu-hosts) | Ubuntu hosts | 8 / 9 | Ubuntu shares with or without a GPU; installed package tested Ubuntu to Ubuntu on the processor. The NVIDIA-card check on a real Ubuntu desktop is still to do |
-| [9](#phase-9--own-use-and-local-api) | Own use and local API | 1 / 4 | The owner can use his own GPU from the app; the local API is in progress |
+| [9](#phase-9--own-use-and-local-api) | Own use and local API | 3 / 4 | The owner uses his own GPU from the app; the local API with tool calling works (tested with the OpenAI SDK and a real model). The real-machine checks are left |
 | [L](#later-backlog) | Later (backlog) | 0 / 5 | Deferred by design |
 
 ---
@@ -822,10 +822,10 @@ AI himself (D12), and the project author asked for a local endpoint any harness 
       his Use mode, no pairing, works with sharing on, off or paused, goes ahead of friends who
       are waiting, every installed model, not counted as usage. A loopback-only listener for this
       install's own certificate plus an in-memory token. *(spec §6.1)*
-- [ ] **P9-T2** — Local OpenAI-compatible API on every computer: `127.0.0.1` only, with a key,
+- [x] **P9-T2** — Local OpenAI-compatible API on every computer: `127.0.0.1` only, with a key,
       `/v1/models` and `/v1/chat/completions` forwarded to a paired host (or this computer) over
       the pinned connection. *(spec §6.9, L-T5)*
-- [ ] **P9-T3** — Tool calls get through to the model, so agent harnesses can use it as their
+- [x] **P9-T3** — Tool calls get through to the model, so agent harnesses can use it as their
       brain; the host still only returns text. *(spec §6.8, §7)*
 - [ ] **P9-T4** — By hand: the owner's own chat on the A2000 while a friend waits; the local API
       with an editor or harness of the author's choice.
@@ -850,6 +850,27 @@ computer completes a task with a host's model through the local API.
 >   `client_runtime.rs`; `scripts/e2e/run.sh` ends with the owner chatting with his own computer
 >   with sharing off. The top-bar tab "Use a friend's" is now "Chat".
 
+> `P9-T2` `P9-T3` · 2026-10-15 · Claude
+> * `client::local_api`: axum on `127.0.0.1:50125` (settings and key in `local-api.json`, off by
+>   default), guarded by the key and the `Host` header, two routes, forwarding with
+>   `HostClient::chat_raw` so the OpenAI chunks pass through unchanged and the host's queue
+>   messages stay inside. It waits for the host's turn before answering, so a pause is a proper
+>   `503`. Model routing: this computer first, then the open chat's host, then any paired host.
+> * Tool calling: `ChatRequest` gains `tools`, `tool_choice`, `parallel_tool_calls`,
+>   `response_format`; `ChatMessage` gains `tool_calls` and `tool_call_id` and accepts `null`
+>   content (golden fixture `chat_request_tools.json`). `clamp.rs` rebuilds all of it from an
+>   allowlist with size caps (tests first); `developer` is read as `system`. llama-server at
+>   `b11582` has Jinja templates on by default, which tool calling needs.
+> * Non-streaming replies now keep tool calls: `protocol::api::CompletionBuilder`, used by the
+>   gatekeeper and the local API.
+> * The fake engine answers with a streamed tool call when asked (`TOOL` + tools), for
+>   `tests/local_api.rs` (8 tests). By hand here: the dev app with the real Vulkan engine and
+>   Qwen3 0.6B on the processor, the local API on, and the official OpenAI Python SDK running an
+>   agent loop: the model called `get_weather` with `{"city": "Lagos"}`, got the result and
+>   answered; streamed tool calls worked too. The first turn took about a minute on this
+>   machine's processor (model load and a long prompt).
+> * Context sizes now go up to 16,384 tokens in the Limits screen, since harness prompts are long.
+
 ---
 
 ## Later (backlog)
@@ -862,7 +883,7 @@ Deliberately out of scope for now. The design keeps each of these possible; none
 - [ ] **L-T3** — Renting: pricing, payments, per-device billing from the usage counts, terms of
       use. Per-device identity and usage counts exist from day one for this. *(spec R10)*
 - [x] **L-T4** — CPU-only host mode for Linux. *(pulled forward as [Phase 8](#phase-8--ubuntu-hosts), D11)*
-- [ ] **L-T5** *(pulled forward as `P9-T2`, D13)* — Local OpenAI-compatible API on the client's `localhost` that forwards to the
+- [x] **L-T5** *(pulled forward as `P9-T2`, D13)* — Local OpenAI-compatible API on the client's `localhost` that forwards to the
       chosen host, so editors and scripts can use the host's GPU. *(spec §6.9 — pull forward into
       Phase 2 if it turns out to be cheap)*
 

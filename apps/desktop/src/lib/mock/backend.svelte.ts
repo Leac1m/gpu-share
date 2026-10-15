@@ -145,7 +145,8 @@ function freshClient(): ClientView {
 		msgs: [],
 		turn: null,
 		networkHint: '',
-		notice: ''
+		notice: '',
+		localApi: { enabled: false, url: 'http://127.0.0.1:50125/v1', key: 'gs-preview-key-not-real', error: '' }
 	};
 }
 
@@ -629,6 +630,12 @@ export const clientBackend: ClientBackend = {
 	},
 	setModel(id) {
 		client.model = id;
+	},
+	setLocalApi(on) {
+		client.localApi.enabled = on;
+	},
+	newLocalApiKey() {
+		client.localApi.key = 'gs-preview-key-' + Math.random().toString(16).slice(2, 10);
 	},
 	forget(hostId) {
 		if (hostId === HOST_ID) unpair(ME.id);

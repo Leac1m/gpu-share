@@ -20,6 +20,35 @@ pub struct AppState {
     pub host: Option<Arc<HostRuntime>>,
     pub client: Arc<ClientRuntime>,
     pub discovery: Arc<Discovery>,
+    /// The local OpenAI-compatible API (`P9-T2`), while switched on.
+    local_api: tokio::sync::Mutex<Option<client::local_api::LocalApi>>,
+    local_api_path: PathBuf,
+}
+
+impl AppState {
+    /// Saves the local API's settings and starts or stops it to match.
+    pub async fn apply_local_api(&self, settings: client::local_api::LocalApiSettings) {
+        let _ = settings.save(&self.local_api_path);
+        let mut running = self.local_api.lock().await;
+        if let Some(api) = running.take() {
+            api.stop().await;
+        }
+        let mut error = String::new();
+        if settings.enabled {
+            match client::local_api::LocalApi::start(self.client.clone(), settings.port, settings.key.clone()).await {
+                Ok(api) => *running = Some(api),
+                Err(e) => {
+                    log::warn!("local API could not start on port {}: {e}", settings.port);
+                    error = format!("Port {} is in use by another program, so the address isn't available.", settings.port);
+                }
+            }
+        }
+        self.client.set_local_api(settings.view(error));
+    }
+
+    pub fn local_api_settings(&self) -> client::local_api::LocalApiSettings {
+        client::local_api::LocalApiSettings::load_or_new(&self.local_api_path)
+    }
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -219,6 +248,20 @@ impl AppState {
                 Some(rt)
             }
         };
-        Ok(Arc::new(Self { host, client, discovery }))
+        let state = Arc::new(Self {
+            host,
+            client,
+            discovery,
+            local_api: tokio::sync::Mutex::new(None),
+            local_api_path: data_dir.join("local-api.json"),
+        });
+        {
+            let state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                let settings = state.local_api_settings();
+                state.apply_local_api(settings).await;
+            });
+        }
+        Ok(state)
     }
 }

@@ -7,6 +7,9 @@
 //! * `FAKE_TOKEN_MS` — delay between words (default 20)
 //! * a user message containing `CRASH` makes the process exit with status 3
 //! * a missing or wrong `--api-key` bearer gets 401, like the real server
+//! * with `tools` in the request and `TOOL` in the user message, it calls the first tool, its
+//!   arguments streamed in two pieces, like llama-server does (`P9-T3`); a `tool` message's
+//!   content is echoed back as the answer
 //! * `FAKE_PORT_TAKEN_ONCE=<file>` — if the file doesn't exist yet, create it and exit with status
 //!   1 as if the port were taken (the real server's behaviour when it can't bind)
 
@@ -91,12 +94,28 @@ async fn chat(State(cfg): State<Cfg>, headers: HeaderMap, Json(body): Json<Value
     if last.contains("CRASH") {
         std::process::exit(3);
     }
+    let delay = Duration::from_millis(cfg.token_ms);
+    let first_tool = body["tools"][0]["function"]["name"].as_str().map(String::from);
+    let last_msg = body["messages"].as_array().and_then(|m| m.last()).cloned().unwrap_or_default();
+    if let (Some(tool), true, false) = (first_tool, last.contains("TOOL"), last_msg["role"] == "tool") {
+        let a = &cfg.alias;
+        let delta = |d: Value| json!({"object": "chat.completion.chunk", "model": a, "choices": [{"index": 0, "delta": d}]});
+        let chunks = [
+            delta(json!({"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_fake_1", "type": "function", "function": {"name": tool, "arguments": ""}}]})),
+            delta(json!({"tool_calls": [{"index": 0, "function": {"arguments": "{\"city\":"}}]})),
+            delta(json!({"tool_calls": [{"index": 0, "function": {"arguments": "\"Lagos\"}"}}]})),
+            json!({"object": "chat.completion.chunk", "model": a, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}),
+        ];
+        let body: String = chunks.iter().map(|c| format!("data: {c}\n\n")).collect::<String>() + "data: [DONE]\n\n";
+        tokio::time::sleep(delay).await;
+        return Response::builder().header("content-type", "text/event-stream").body(axum::body::Body::from(body)).unwrap();
+    }
+    let last = if last_msg["role"] == "tool" { format!("tool said {}", last_msg["content"].as_str().unwrap_or("")) } else { last };
     let max = body["max_tokens"].as_u64().unwrap_or(u64::MAX) as usize;
     let words: Vec<String> = format!("Echo: {last}").split(' ').take(max).map(|w| format!("{w} ")).collect();
     let prompt_tokens = body["messages"].as_array().map(|m| m.len() * 4).unwrap_or(0);
     let n = words.len();
     let alias = cfg.alias.clone();
-    let delay = Duration::from_millis(cfg.token_ms);
     let chunks = words
         .into_iter()
         .map(move |w| json!({"object": "chat.completion.chunk", "model": alias, "choices": [{"index": 0, "delta": {"content": w}}]}))

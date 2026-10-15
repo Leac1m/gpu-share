@@ -324,10 +324,10 @@ async fn chat(State(core): State<Arc<HostCore>>, Extension(device): Extension<De
     }
 }
 
-/// Non-streaming clients get one OpenAI completion object once the turn is over.
+/// Non-streaming clients get one OpenAI completion object once the turn is over, tool calls
+/// included (`P9-T3`).
 async fn collect_reply(mut rx: mpsc::Receiver<Out>, model: &str) -> Response {
-    let mut text = String::new();
-    let mut usage = Value::Null;
+    let mut done = protocol::api::CompletionBuilder::default();
     let mut started = false;
     while let Some(out) = rx.recv().await {
         match out {
@@ -336,23 +336,10 @@ async fn collect_reply(mut rx: mpsc::Receiver<Out>, model: &str) -> Response {
                 return api_error(StatusCode::SERVICE_UNAVAILABLE, ErrorKind::Paused, reason)
             }
             Out::Queue(_) => {}
-            Out::Chunk(c) => {
-                if let Some(t) = c["choices"][0]["delta"]["content"].as_str() {
-                    text.push_str(t);
-                }
-                if !c["usage"].is_null() {
-                    usage = c["usage"].clone();
-                }
-            }
+            Out::Chunk(c) => done.push(&c),
         }
     }
-    Json(json!({
-        "object": "chat.completion",
-        "model": model,
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
-        "usage": usage,
-    }))
-    .into_response()
+    Json(done.finish(model)).into_response()
 }
 
 /// One request's whole life: wait in line, get the engine ready, stream, count usage.

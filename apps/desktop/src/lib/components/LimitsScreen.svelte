@@ -69,7 +69,7 @@
 	</div>
 	<div class="ctl">
 		<select onchange={(e) => update({ ctx: num(e) })}>
-			{#each [2048, 4096, 8192] as c (c)}
+			{#each [2048, 4096, 8192, 16384] as c (c)}
 				<option value={c} selected={c === st.ctx}>{fmtNum(c)} tokens · about {approxWords(c)} words</option>
 			{/each}
 		</select>

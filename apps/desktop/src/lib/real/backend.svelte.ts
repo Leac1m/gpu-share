@@ -67,7 +67,8 @@ const client = $state<ClientView>({
 	msgs: [],
 	turn: null,
 	networkHint: '',
-	notice: ''
+	notice: '',
+	localApi: { enabled: false, url: '', key: '', error: '' }
 });
 /** Whether this computer can share (an engine was found). */
 export const capability = $state({ canShare: false, ready: false });
@@ -140,5 +141,7 @@ export const clientBackend: ClientBackend = {
 		client.model = id;
 		call('client_set_model', { id });
 	},
-	forget: (hostId) => call('client_forget', { hostId })
+	forget: (hostId) => call('client_forget', { hostId }),
+	setLocalApi: (on) => call('client_set_local_api', { on }),
+	newLocalApiKey: () => call('client_new_local_api_key')
 };

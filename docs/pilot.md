@@ -78,6 +78,31 @@ Differences from the Windows host:
 * While sharing is on, closing the window keeps the app running in the tray (top right). Use the
   tray menu's **Quit** to stop it.
 
+## The owner using his own GPU
+
+The owner doesn't need another computer to use the AI: in GPU Share, press **Chat** at the top.
+**This computer** is first in the list. It works whether sharing is on, off or paused, his
+questions go ahead of friends who are waiting, and he can use every model he installed,
+including ones switched off for friends.
+
+## Using it from other apps (editors, scripts, AI agents)
+
+Any computer with GPU Share (a friend's, or the owner's own) can offer an OpenAI-compatible
+address to other programs on that computer:
+
+1. Press **Chat** (or open the app on a friend's computer), go to **Computers**, scroll down
+   to **Use from other apps** and switch it on.
+2. In the program, choose an "OpenAI-compatible" provider and enter the **Base URL**
+   (`http://127.0.0.1:50125/v1`), the **API key** shown, and a **model** from the list shown
+   (for example `qwen3-8b-q4km`).
+
+Questions from the program wait in line like the chat's own, within the owner's limits. Tool
+calling works, so agent frameworks can use it, but small models are much weaker at it than big
+ones; prefer Qwen3 8B where it fits. Agents send long instructions: if they report that the
+conversation is too long, the owner can raise **How much of a conversation the model remembers**
+in Limits (up to 16,384 tokens, if the card has room). **New key** stops programs using the old
+one.
+
 ## What to check during the pilot
 
 These can only be checked on the real machines. Tick them in the roadmap's manual checklist as

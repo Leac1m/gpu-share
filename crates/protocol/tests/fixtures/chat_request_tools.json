@@ -1,0 +1,29 @@
+{
+  "model": "qwen3-8b-q4km",
+  "messages": [
+    { "role": "system", "content": "You can look up the weather." },
+    { "role": "user", "content": "Weather in Lagos?" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "call_1", "type": "function", "function": { "name": "get_weather", "arguments": "{\"city\":\"Lagos\"}" } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "call_1", "content": "31°C, humid" }
+  ],
+  "stream": true,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Current weather for a city",
+        "parameters": { "type": "object", "properties": { "city": { "type": "string" } }, "required": ["city"] }
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": false,
+  "response_format": { "type": "text" }
+}

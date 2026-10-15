@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use futures_util::StreamExt;
 use netcore::tls::ServerPin;
 use netcore::Identity;
-use protocol::api::{ChatMessage, ChatRequest, ErrorKind, MessageContent, QueueEvent};
+use protocol::api::{ChatMessage, ChatRequest, ErrorKind, QueueEvent};
 use protocol::discovery::{Announcement, ShareStatus};
 use serde::Serialize;
 
@@ -58,6 +58,20 @@ struct State {
     network_hint: String,
     /// A one-off message for the Computers screen ("The owner said not now.").
     notice: String,
+    /// The local API's settings and state, for the Chat screens (`P9-T2`).
+    local_api: LocalApiView,
+}
+
+/// What the UI shows about the local API (`P9-T2`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalApiView {
+    pub enabled: bool,
+    /// The base URL to give other programs, e.g. `http://127.0.0.1:50125/v1`.
+    pub url: String,
+    pub key: String,
+    /// Why it couldn't start (port in use).
+    pub error: String,
 }
 
 pub struct ClientRuntime {
@@ -172,6 +186,25 @@ impl ClientRuntime {
         self.state.lock().unwrap().hosts.values().cloned().collect()
     }
 
+    pub fn set_local_api(&self, v: LocalApiView) {
+        self.state.lock().unwrap().local_api = v;
+    }
+
+    /// Where the local API sends a request for `model`: paired hosts (and this computer) that
+    /// offer it, this computer first, then the computer the chat is open with, then the rest.
+    pub fn route_model(&self, model: &str) -> Option<SeenHost> {
+        self.api_hosts().into_iter().find(|h| h.models.iter().any(|m| m.id == model))
+    }
+
+    /// Paired hosts with their models, in the order the local API prefers them.
+    pub fn api_hosts(&self) -> Vec<SeenHost> {
+        let st = self.state.lock().unwrap();
+        let chat = st.chat_host.clone();
+        let mut list: Vec<SeenHost> = st.hosts.values().filter(|h| self.is_paired(&h.info.id)).cloned().collect();
+        list.sort_by_key(|h| (!self.is_own(&h.info.id), chat.as_deref() != Some(h.info.id.as_str())));
+        list
+    }
+
     pub fn set_network_hint(&self, hint: String) {
         self.state.lock().unwrap().network_hint = hint;
     }
@@ -275,9 +308,9 @@ impl ClientRuntime {
         let mut messages: Vec<ChatMessage> = earlier
             .into_iter()
             .filter(|m| m.role == "user" || m.role == "assistant")
-            .map(|m| ChatMessage { role: m.role, content: MessageContent::Text(m.text) })
+            .map(|m| ChatMessage::text(m.role, m.text))
             .collect();
-        messages.push(ChatMessage { role: "user".into(), content: MessageContent::Text(text) });
+        messages.push(ChatMessage::text("user", text));
         let req = ChatRequest { model, messages, ..Default::default() };
 
         let me = self.clone();
@@ -513,6 +546,7 @@ impl ClientRuntime {
             turn: st.turn.clone(),
             network_hint: st.network_hint.clone(),
             notice: st.notice.clone(),
+            local_api: st.local_api.clone(),
         }
     }
 }
@@ -529,6 +563,7 @@ pub struct ClientView {
     pub turn: Option<Turn>,
     pub network_hint: String,
     pub notice: String,
+    pub local_api: LocalApiView,
 }
 
 #[derive(Debug, Clone, Serialize)]

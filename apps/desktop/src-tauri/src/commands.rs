@@ -196,3 +196,21 @@ pub fn client_set_model(s: S, id: String) {
 pub fn client_forget(s: S, host_id: String) {
     s.client.forget(&host_id);
 }
+
+/// The local API's switch (`P9-T2`).
+#[tauri::command]
+pub async fn client_set_local_api(s: S<'_>, on: bool) -> R {
+    let mut settings = s.local_api_settings();
+    settings.enabled = on;
+    s.apply_local_api(settings).await;
+    Ok(())
+}
+
+/// A new key for the local API; programs using the old one stop working.
+#[tauri::command]
+pub async fn client_new_local_api_key(s: S<'_>) -> R {
+    let mut settings = s.local_api_settings();
+    settings.key = client::local_api::new_key();
+    s.apply_local_api(settings).await;
+    Ok(())
+}

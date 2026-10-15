@@ -96,6 +96,8 @@ pub fn run() {
             commands::client_stop,
             commands::client_set_model,
             commands::client_forget,
+            commands::client_set_local_api,
+            commands::client_new_local_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
