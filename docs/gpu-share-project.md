@@ -186,7 +186,7 @@ While serving, the app keeps the PC awake with `SetThreadExecutionState`, and re
 
 The model list works like a small app store.
 
-**Catalog.** A curated list hosted by the project (a JSON file on GitHub is enough). The owner picks from it. An "add from a Hugging Face link" option sits behind an Advanced toggle. Example entry:
+**Catalog.** A curated list hosted by the project: a JSON file on the repository's `catalog` GitHub release, published from `crates/host/catalog.json` whenever it changes on `main`, so models can be added without a new app release. The app keeps the last copy it fetched for offline starts and ships with a copy of its own. Every entry is checked before use: a plain id, a Hugging Face HTTPS download, a SHA-256, and only harmless engine settings (sampling values and the chat template's options; nothing that changes where the engine listens or what it reads or writes). An entry can name the oldest app version that can use it (`min_app_version`); older apps leave it out. The owner picks from it. An "add from a Hugging Face link" option sits behind an Advanced toggle. Example entry:
 
 ```json
 {

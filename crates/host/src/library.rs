@@ -46,6 +46,7 @@ pub fn validate(entries: Vec<CatalogEntry>, allowed_hosts: &[String]) -> Vec<Cat
                 allowed_hosts.iter().any(|a| a == h) && (e.file_url.starts_with("https://") || h == "127.0.0.1")
             });
             let ok = valid_id(&e.id)
+                && valid_engine_args(&e.engine_args)
                 && e.sha256.len() == 64
                 && e.sha256.bytes().all(|b| b.is_ascii_hexdigit())
                 && e.size_bytes > 0
@@ -58,11 +59,64 @@ pub fn validate(entries: Vec<CatalogEntry>, allowed_hosts: &[String]) -> Vec<Cat
         .collect()
 }
 
+/// The only `llama-server` flags a catalog may add (`P6-T1`). The catalog is fetched from the
+/// internet, so it must not be able to change where the engine listens, what it reads or writes,
+/// or the owner's limits: only sampling settings and the chat template's options.
+const ENGINE_FLAGS_WITH_NUMBER: &[&str] = &["--temp", "--top-p", "--top-k", "--min-p", "--repeat-penalty", "--presence-penalty"];
+const ENGINE_FLAGS_ALONE: &[&str] = &["--jinja"];
+
+pub fn valid_engine_args(args: &[String]) -> bool {
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        let flag = flag.as_str();
+        if ENGINE_FLAGS_ALONE.contains(&flag) {
+            continue;
+        }
+        let Some(value) = it.next() else { return false };
+        let ok = if ENGINE_FLAGS_WITH_NUMBER.contains(&flag) {
+            value.parse::<f64>().is_ok_and(|v| v.is_finite() && (0.0..=1000.0).contains(&v))
+        } else if flag == "--chat-template-kwargs" {
+            serde_json::from_str::<serde_json::Value>(value).is_ok_and(|v| v.is_object())
+        } else {
+            false
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether this app version can use an entry (`min_app_version`, for models a newer engine
+/// is needed for). Versions are compared number by number; an unreadable one means "no".
+pub fn usable_by(e: &CatalogEntry, app_version: &str) -> bool {
+    let parse = |v: &str| v.split('.').map(|p| p.parse::<u64>().ok()).collect::<Option<Vec<_>>>();
+    match &e.min_app_version {
+        None => true,
+        Some(min) => match (parse(min), parse(app_version)) {
+            (Some(min), Some(app)) => app >= min,
+            _ => false,
+        },
+    }
+}
+
 pub const DEFAULT_HOSTS: &[&str] = &["huggingface.co"];
+
+/// Where release builds fetch the catalog (`P6-T1`, D3): a file on this repository's `catalog`
+/// GitHub release, published by `.github/workflows/catalog.yml` whenever `catalog.json` changes
+/// on `main`. Models can then be added without a new app release.
+pub const DEFAULT_CATALOG_URL: &str = "https://github.com/Leac1m/gpu-share/releases/download/catalog/catalog.json";
 
 /// The catalog to use at startup: fetched (and cached) if a URL is configured, else the cache
 /// from a previous fetch, else the bundled one. Dev entries from the bundled catalog are kept.
-pub async fn load_catalog(bundled: Vec<CatalogEntry>, url: Option<&str>, cache: &Path, hosts: &[String]) -> Vec<CatalogEntry> {
+/// Entries that need a newer app than `app_version` are left out.
+pub async fn load_catalog(
+    bundled: Vec<CatalogEntry>,
+    url: Option<&str>,
+    cache: &Path,
+    hosts: &[String],
+    app_version: &str,
+) -> Vec<CatalogEntry> {
     let dev: Vec<CatalogEntry> = bundled.iter().filter(|e| e.dev_only).cloned().collect();
     let fetched = match url {
         Some(url) => fetch_catalog(url).await,
@@ -77,6 +131,7 @@ pub async fn load_catalog(bundled: Vec<CatalogEntry>, url: Option<&str>, cache: 
         None => None,
     };
     let mut list = validate(remote.unwrap_or(bundled), hosts);
+    list.retain(|e| usable_by(e, app_version));
     for d in dev {
         if !list.iter().any(|e| e.id == d.id) {
             list.push(d);
@@ -380,6 +435,7 @@ pub async fn entry_from_hf_link(link: &str) -> Result<CatalogEntry, String> {
         tps_estimate: None,
         engine_args: vec![],
         dev_only: false,
+        min_app_version: None,
     })
 }
 
@@ -403,6 +459,53 @@ mod tests {
         e.file_url = url.into();
         e.sha256 = "a".repeat(64);
         e
+    }
+
+    #[test]
+    fn a_catalog_can_only_pass_a_few_harmless_engine_flags() {
+        let hosts = vec!["huggingface.co".to_string()];
+        let with = |args: &[&str]| {
+            let mut e = entry("m", "https://huggingface.co/a/b/resolve/main/x.gguf");
+            e.engine_args = args.iter().map(|a| a.to_string()).collect();
+            validate(vec![e], &hosts).len() == 1
+        };
+        assert!(with(&[]));
+        assert!(with(&["--chat-template-kwargs", r#"{"enable_thinking":false}"#]));
+        assert!(with(&["--temp", "0.7", "--top-p", "0.8", "--top-k", "20", "--min-p", "0"]));
+        assert!(with(&["--jinja"]));
+        // anything that could reach the network, the disk or the owner's settings is refused
+        for bad in [
+            &["--host", "0.0.0.0"][..],
+            &["--port", "80"],
+            &["--api-key", "x"],
+            &["--slot-save-path", "/tmp"],
+            &["--log-file", "C:/Users/x/a.txt"],
+            &["--chat-template-file", "/etc/passwd"],
+            &["--lora", "x.gguf"],
+            &["-m", "other.gguf"],
+            &["--ctx-size", "131072"],
+            &["-ngl", "0"],
+            &["--parallel", "8"],
+            &["--temp"],
+            &["--temp", "hot"],
+            &["--temp", "NaN"],
+            &["--chat-template-kwargs", "not json"],
+            &["--chat-template-kwargs", "[1]"],
+        ] {
+            assert!(!with(bad), "{bad:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn entries_for_a_newer_app_are_left_out() {
+        let mut e = entry("m", "https://huggingface.co/a/b/resolve/main/x.gguf");
+        assert!(usable_by(&e, "0.1.0"));
+        e.min_app_version = Some("0.2.0".into());
+        assert!(!usable_by(&e, "0.1.0"));
+        assert!(usable_by(&e, "0.2.0"));
+        assert!(usable_by(&e, "0.10.1"), "compared as numbers, not text");
+        e.min_app_version = Some("not a version".into());
+        assert!(!usable_by(&e, "9.9.9"), "unreadable means skip");
     }
 
     #[test]
@@ -462,11 +565,11 @@ mod tests {
         let hosts = vec!["huggingface.co".to_string()];
         let bundled = crate::core::bundled_catalog();
         let unreachable = Some("http://127.0.0.1:1/catalog.json");
-        let got = load_catalog(bundled.clone(), unreachable, &cache, &hosts).await;
+        let got = load_catalog(bundled.clone(), unreachable, &cache, &hosts, "0.1.0").await;
         assert_eq!(got.len(), bundled.len(), "no cache yet: bundled");
         let cached = vec![bundled[0].clone()];
         std::fs::write(&cache, serde_json::to_vec(&cached).unwrap()).unwrap();
-        let got = load_catalog(bundled.clone(), unreachable, &cache, &hosts).await;
+        let got = load_catalog(bundled.clone(), unreachable, &cache, &hosts, "0.1.0").await;
         let ids: Vec<&str> = got.iter().map(|e| e.id.as_str()).collect();
         assert_eq!(ids, vec!["qwen3-4b-q4km", "smollm2-135m-q8"], "the cache, plus the dev model");
     }

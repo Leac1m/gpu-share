@@ -36,6 +36,7 @@ pub fn entry(id: &str) -> CatalogEntry {
         tps_estimate: None,
         engine_args: vec![],
         dev_only: false,
+        min_app_version: None,
     }
 }
 

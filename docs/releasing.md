@@ -19,6 +19,31 @@ download the files from the run's artifacts.
 The installers are not code-signed yet (roadmap `P7-T7`, decision D4), so Windows shows "Windows
 protected your PC" the first time. See [pilot.md](pilot.md) for what to tell friends.
 
+## Changing the model catalog (`P6-T1`)
+
+The app's model list is `crates/host/catalog.json`. Release builds fetch the published copy
+at start (`https://github.com/Leac1m/gpu-share/releases/download/catalog/catalog.json`), keep
+it for offline starts, and fall back to the copy bundled in the app. So adding, changing or
+removing a model doesn't need a new app release:
+
+1. Edit `crates/host/catalog.json`. Pin `file_url` to a commit
+   (`.../resolve/<commit>/<file>.gguf`), and take `size_bytes` and `sha256` from Hugging
+   Face (the file's page, or `scripts/check-catalog.py`, which prints any mismatch).
+2. Run `python3 scripts/check-catalog.py` and
+   `cargo test -p host --lib library::tests::the_bundled_catalog_passes_validation`.
+3. Merge to `main`. The **Catalog** workflow (`.github/workflows/catalog.yml`) runs the same
+   checks and uploads the file to the `catalog` release (a prerelease, so it never shows as the
+   app's latest release). Apps pick it up the next time they start.
+
+Rules the app enforces on every entry, so a bad catalog can't do harm: the id is a plain file
+name, the download is HTTPS from huggingface.co, the SHA-256 is 64 hex characters, and
+`engine_args` may only contain `--chat-template-kwargs <json object>`, `--jinja`, and the
+sampling flags `--temp`, `--top-p`, `--top-k`, `--min-p`, `--repeat-penalty`,
+`--presence-penalty` with a number. Entries that break a rule are skipped.
+
+Only add *optional* fields to entries: older apps read the same file. A model that needs a
+newer engine than older apps have gets `"min_app_version": "x.y.z"`, and those apps leave it out.
+
 ## The engine version (`P7-T8`)
 
 llama.cpp moves quickly, so the engine is pinned. `engine-version.txt` holds the llama.cpp

@@ -635,6 +635,18 @@ The policy loop with real signals, on the friend's laptop. This is the first rea
 > * The dev profile now builds dependencies without debug info: `target/` had reached 18 GB and
 >   filled the cloud session's disk.
 
+> `P6-T1` · 2026-10-15 · Claude
+> * Hosting decided (D3): `crates/host/catalog.json` is published to the `catalog` GitHub release
+>   by `.github/workflows/catalog.yml` on `main` (on other branches it only checks). Release
+>   builds fetch `releases/download/catalog/catalog.json` (`library::DEFAULT_CATALOG_URL`); dev
+>   builds only with `GPU_SHARE_CATALOG_URL` (empty turns it off). Tick `P6-T1` once the first
+>   publish has run on `main` and a release build has picked it up.
+> * A fetched catalog is untrusted input, so `validate` now also allowlists `engine_args`
+>   (before, only the bundled catalog could set them). New optional `min_app_version` per entry.
+> * `scripts/check-catalog.py` compares every entry's size and SHA-256 with Hugging Face's
+>   `X-Linked-Size` / `X-Linked-Etag`; the workflow runs it before publishing. How to change the
+>   catalog: `docs/releasing.md`.
+
 ---
 
 ## Phase 7 — Installers, updates, pilot
@@ -829,7 +841,7 @@ task that depended on it. If you resolve something not listed here, add a row.
 |---|---|---|---|---|
 | D1 | Project name | Decided | "GPU Share" — the working title is kept as the real name | 12 September 2026 |
 | D2 | Frontend framework (Svelte or React) | Decided | Svelte — smaller runtime, less boilerplate for a state-machine-heavy UI (share switch, policy states, streaming chat) | 12 September 2026 |
-| D3 | Where to host the model catalog and update files | Open | GitHub Releases is the default option. *Recommended 13 October 2026, not yet confirmed:* bundle the catalog in the app until Phase 6, then GitHub | — |
+| D3 | Where to host the model catalog and update files | Decided | GitHub Releases (project author): the catalog is a file on this repository's `catalog` release, published by `.github/workflows/catalog.yml` from `crates/host/catalog.json` on `main`. Update files for the auto-updater (`P7-T6`) are expected to go on the app's own releases | 15 October 2026 |
 | D4 | Code-signing certificate: cost and timing | Open | *Recommended, not yet confirmed:* none for the pilot; warn friends about the SmartScreen prompt and decide before any wider release | — |
 | D5 | Which models go in the first catalog (licences checked) | Open | *Recommended, not yet confirmed:* Qwen3 4B and Qwen3 8B at Q4_K_M (Apache 2.0), thinking mode off so it doesn't eat the 1,024-token reply cap. Licences (Apache 2.0) and SHA-256s checked at the source on 13 October 2026 and built into the app's catalog; awaiting the project author's confirmation | — |
 | D6 | Which apps to pre-fill in the pause list | Open | Ask the friend during P1-T5. *Recommended starting list:* Blender, DaVinci Resolve, Premiere Pro, After Effects, Photoshop, Unreal Engine, Unity, OBS | — |

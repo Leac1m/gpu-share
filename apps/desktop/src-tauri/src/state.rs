@@ -171,14 +171,20 @@ impl AppState {
                     download_hosts: host::library::DEFAULT_HOSTS.iter().map(|h| h.to_string()).collect(),
                 })?;
                 {
-                    // a newer catalog, if one is published (D3); offline starts use the cache
+                    // the published catalog (P6-T1, D3); offline starts use the cache, then the
+                    // bundled copy. Release builds fetch it by default, development builds only
+                    // with GPU_SHARE_CATALOG_URL (an empty value turns fetching off).
                     let core = core.clone();
-                    let url = std::env::var("GPU_SHARE_CATALOG_URL").ok();
+                    let url = match std::env::var("GPU_SHARE_CATALOG_URL") {
+                        Ok(u) if u.is_empty() => None,
+                        Ok(u) => Some(u),
+                        Err(_) => (!cfg!(debug_assertions)).then(|| host::library::DEFAULT_CATALOG_URL.to_string()),
+                    };
                     let cache = data_dir.join("catalog-cache.json");
                     tauri::async_runtime::spawn(async move {
                         if url.is_some() {
                             let hosts = core.cfg.download_hosts.clone();
-                            let list = host::library::load_catalog(bundled_catalog(), url.as_deref(), &cache, &hosts).await;
+                            let list = host::library::load_catalog(bundled_catalog(), url.as_deref(), &cache, &hosts, env!("CARGO_PKG_VERSION")).await;
                             core.set_catalog(list);
                         }
                     });

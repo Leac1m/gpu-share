@@ -370,3 +370,29 @@ async fn the_real_linux_engine_downloads_unpacks_and_runs() {
     assert!(out.status.success(), "{text}");
     assert!(text.contains("version"), "{text}");
 }
+
+/// `P6-T1`: the published catalog is fetched through GitHub's redirect to its file storage,
+/// cached, and checked entry by entry like the bundled one.
+#[tokio::test]
+async fn the_published_catalog_is_fetched_through_a_redirect_and_checked() {
+    let good = entry("published-model");
+    let mut hostile = entry("hostile-model");
+    hostile.engine_args = vec!["--host".into(), "0.0.0.0".into()];
+    let mut future = entry("future-model");
+    future.min_app_version = Some("9.0.0".into());
+    let body = serde_json::to_vec(&vec![good.clone(), hostile, future]).unwrap();
+    let app = axum::Router::new()
+        .route("/releases/download/catalog/catalog.json", get(|| async { axum::response::Redirect::temporary("/storage/catalog.json") }))
+        .route("/storage/catalog.json", get(move || async move { body.clone() }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("catalog-cache.json");
+    let hosts = vec!["huggingface.co".to_string()];
+    let url = format!("http://{addr}/releases/download/catalog/catalog.json");
+    let got = host::library::load_catalog(vec![entry("bundled-model")], Some(&url), &cache, &hosts, "0.1.0").await;
+    assert_eq!(got.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["published-model"]);
+    assert!(cache.is_file(), "kept for offline starts");
+}

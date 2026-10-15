@@ -27,6 +27,10 @@ pub struct CatalogEntry {
     /// Tiny models for development; hidden in release builds.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dev_only: bool,
+    /// The oldest app version that can use this entry (a model a newer engine is needed for).
+    /// Older apps leave it out of the list instead of failing to load it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_app_version: Option<String>,
 }
 
 impl CatalogEntry {

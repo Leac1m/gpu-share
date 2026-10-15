@@ -45,13 +45,19 @@ address, and its API key is generated fresh for every start and never leaves the
 
 * **Structural.** No code captures the screen or synthesizes input. A grep for `SendInput`,
   `BitBlt` and process spawning shows the only spawned process is the engine binary, with
-  arguments built in `engine.rs` from the bundled catalog and the owner's settings.
+  arguments built in `engine.rs` from the catalog and the owner's settings.
 
 ### Run commands or programs sent from the network
 
 * **Structural.** The only process the app starts is `llama-server`, from a path decided at
-  startup (bundled resource, env override, or the dev build). Its arguments come from the bundled
-  catalog (`catalog.json`, compiled in) and the owner's settings, never from a request.
+  startup (bundled resource, env override, or the dev build). Its arguments come from the catalog
+  and the owner's settings, never from a request.
+* **The catalog is fetched from this repository's `catalog` release** (`P6-T1`), so it is checked
+  like untrusted input: a catalog entry may only add `--chat-template-kwargs` with a JSON object,
+  `--jinja`, or a sampling flag with a number; anything else (`--host`, `--port`, file paths,
+  `--ctx-size`, `-ngl`, …) makes the whole entry be skipped
+  (`library::tests::a_catalog_can_only_pass_a_few_harmless_engine_flags`). Downloads stay limited
+  to huggingface.co over HTTPS with a SHA-256.
 * **Engine-side features** that could be abused (grammars, `n`, logprobs, `n_predict`) are not in
   `ChatRequest`, so they are dropped on parse (`protocol::api` test
   `unknown_request_fields_are_dropped_on_parse`).
@@ -119,8 +125,11 @@ address, and its API key is generated fresh for every start and never leaves the
 ## Residual risks (accepted for the pilot)
 
 1. **llama-server and GGUF parsing bugs.** The engine parses model files and prompts. Models come
-   only from the bundled catalog with SHA-256 checks (`P6-T4`), and the engine version is pinned
-   (`P7-T8`); updates are the remaining defence. Keep the engine current.
+   only from the catalog (bundled, or published from this repository) or a Hugging Face link the
+   owner pastes, with SHA-256 checks (`P6-T4`), and the engine version is pinned (`P7-T8`);
+   updates are the remaining defence. Keep the engine current. Whoever can publish the `catalog`
+   release can offer any Hugging Face file; the owner still has to press Add, and only the
+   allowed engine flags above apply.
 2. **Popup spam with fresh identities.** The 60 s cooldown is per certificate, and certificates
    are free to make, so a determined device on the Wi-Fi can keep putting popups up, one at a
    time. The owner can switch sharing off. Revisit if it happens in the pilot.

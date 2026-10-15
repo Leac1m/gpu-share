@@ -1,0 +1,51 @@
+name: Catalog
+
+# Publishes the model catalog (roadmap P6-T1, decision D3). Release builds of the app fetch it
+# from the `catalog` GitHub release, so models can be added or changed without a new app
+# release:
+#
+#   https://github.com/<owner>/<repo>/releases/download/catalog/catalog.json
+#
+# On any branch this only checks the catalog; on main it also publishes it. To change the
+# models, edit crates/host/catalog.json and merge to main (see docs/releasing.md).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - crates/host/catalog.json
+      - scripts/check-catalog.py
+      - .github/workflows/catalog.yml
+
+permissions:
+  contents: write
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # the app's own rules: safe ids, Hugging Face HTTPS URLs, checksums, allowed engine flags
+      - name: The app accepts every entry
+        run: cargo test -p host --lib library::tests::the_bundled_catalog_passes_validation
+
+      # every file exists on Hugging Face with the size and SHA-256 the catalog says
+      - name: Sizes and checksums match Hugging Face
+        run: python3 scripts/check-catalog.py crates/host/catalog.json
+
+      - name: Publish to the catalog release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view catalog -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # a prerelease, so it never shows up as the app's "latest" release
+            gh release create catalog -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Model catalog" \
+              --notes "The list of models GPU Share offers. Updated automatically from crates/host/catalog.json on main; not an app release."
+          fi
+          gh release upload catalog crates/host/catalog.json -R "$GITHUB_REPOSITORY" --clobber
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/download/catalog/catalog.json"
